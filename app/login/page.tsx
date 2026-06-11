@@ -10,13 +10,23 @@ import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import { TextField } from '@/components/ui/TextField';
 
+// 콜백 실패 단계(reason) → 사용자/개발자용 힌트.
+const REASON_HINT: Record<string, string> = {
+  token: 'Google 토큰 교환 실패 — 재동의가 필요할 수 있습니다.',
+  email: 'Google 프로필(이메일) 조회에 실패했습니다.',
+  seal: '서버 암호화 키 설정 오류 (CREDENTIALS_ENCRYPTION_KEY, 64자 hex).',
+  store: '자격증명 저장소 오류 (KV 환경변수 KV_REST_API_URL/TOKEN 확인).',
+};
+
 export default function LoginPage() {
   const [selected, setSelected] = useState<MailProvider | null>(null);
   const [error, setError] = useState(false);
+  const [reason, setReason] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setError(params.get('error') === 'oauth');
+    setReason(params.get('reason'));
   }, []);
 
   return (
@@ -34,9 +44,14 @@ export default function LoginPage() {
       </header>
 
       {error && (
-        <p className="mb-8 border-t border-ink py-3 text-sm text-ink">
-          로그인에 실패했습니다. 다시 시도해 주세요.
-        </p>
+        <div className="mb-8 border-t border-ink py-3 text-sm text-ink">
+          <p>로그인에 실패했습니다. 다시 시도해 주세요.</p>
+          {reason && (
+            <p className="mt-1 text-gray">
+              {REASON_HINT[reason] ?? `실패 단계: ${reason}`}
+            </p>
+          )}
+        </div>
       )}
 
       {!selected ? (

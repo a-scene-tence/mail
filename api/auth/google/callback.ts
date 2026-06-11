@@ -15,6 +15,8 @@ export default async function handler(
   res: VercelResponse,
 ) {
   const appBase = process.env.APP_BASE_URL ?? '';
+  // 실패 단계 추적 — catch에서 ?reason=<stage>로 노출해 진단 가능하게.
+  let stage = 'init';
   try {
     const code = typeof req.query.code === 'string' ? req.query.code : '';
     if (!code) {
@@ -22,16 +24,22 @@ export default async function handler(
       return;
     }
 
+    stage = 'token';
     const { refreshToken, accessToken } = await exchangeCode(code);
+    stage = 'email';
     const email = await fetchEmail(accessToken);
 
+    stage = 'seal';
+    const secret = seal(refreshToken);
+
+    stage = 'store';
     const accountId = `gmail:${email}`;
     const store = getStore();
     await store.putAccount({
       id: accountId,
       providerId: 'gmail',
       address: email,
-      secret: seal(refreshToken),
+      secret,
     });
 
     // 기존 세션이 있으면 재사용, 없으면 새로 발급.
@@ -42,9 +50,10 @@ export default async function handler(
     res.setHeader('Set-Cookie', buildSessionCookie(sessionId));
     res.setHeader('Location', `${appBase}/mail/`);
     res.status(302).end();
-  } catch {
-    // 실패 시 로그인 화면으로 에러 표시
-    res.setHeader('Location', `${appBase}/login/?error=oauth`);
+  } catch (err) {
+    // 실패 단계와 메시지를 함수 로그에 남기고, 화면엔 사유 코드만 전달.
+    console.error(`oauth callback 실패 @${stage}:`, (err as Error).message);
+    res.setHeader('Location', `${appBase}/login/?error=oauth&reason=${stage}`);
     res.status(302).end();
   }
 }
