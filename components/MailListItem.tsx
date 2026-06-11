@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { MailMessage } from '@/lib/providers/types';
 
 function formatDate(iso: string): string {
@@ -8,8 +9,14 @@ function formatDate(iso: string): string {
 
 /** 메일 목록 한 행 — 발신자/제목/스니펫/날짜, 읽지 않음 dot. */
 export function MailListItem({ message }: { message: MailMessage }) {
+  const href = `/read/?accountId=${encodeURIComponent(
+    message.accountId,
+  )}&id=${encodeURIComponent(message.id)}`;
   return (
-    <article className="flex gap-4 border-t border-hairline px-1 py-5 transition-colors hover:bg-paper-off">
+    <Link
+      href={href}
+      className="flex gap-4 border-t border-hairline px-1 py-5 transition-colors hover:bg-paper-off"
+    >
       <span
         aria-hidden
         className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
@@ -38,6 +45,6 @@ export function MailListItem({ message }: { message: MailMessage }) {
         </h3>
         <p className="mt-1 truncate text-sm text-gray">{message.snippet}</p>
       </div>
-    </article>
+    </Link>
   );
 }

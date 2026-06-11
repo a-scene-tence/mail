@@ -1,8 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { buildAuthUrl } from '../../../lib/server/google';
+import { randomToken } from '../../../lib/server/crypto';
 
 // GET /api/auth/google/start
-// 골격 단계: OAuth 동의 화면으로의 리다이렉트 자리(스텁).
-// M2에서 google OAuth2 client로 authUrl 생성 후 302 redirect.
+// 동의 화면으로 302 리다이렉트. state는 CSRF 방지용 난수.
+// 세션 연속성은 콜백에서 기존 mail_session 쿠키(SameSite=Lax, 톱레벨 이동 시 전송)로 처리.
 export default function handler(_req: VercelRequest, res: VercelResponse) {
-  res.status(501).json({ error: 'Google OAuth start: Not Implemented (M2)' });
+  try {
+    const state = randomToken(16);
+    const url = buildAuthUrl(state);
+    res.setHeader('Location', url);
+    res.status(302).end();
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
 }

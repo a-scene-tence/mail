@@ -49,7 +49,7 @@ npm run lint       # next lint
 
 > 형식: `날짜 | 증상 | 원인 | 해결 | 재발 방지`
 
-- (아직 기록된 오류 없음 — 발생 시 위 형식으로 추가)
+- 2026-06-11 | `next build` 린트 단계에서 `Definition for rule '@typescript-eslint/no-var-requires' was not found` 에러 | `eslint-config-next`에 해당 룰이 없는데 `// eslint-disable-next-line @typescript-eslint/no-var-requires` 주석을 달아 ESLint가 "존재하지 않는 룰 비활성화"로 에러 처리 | 동적 `require('@vercel/kv')`를 정적 `import { kv } from '@vercel/kv'`로 바꾸고 disable 주석 제거(KV는 호출 시점에만 연결되므로 정적 import 안전) | next 환경에 없는 룰을 비활성화 주석으로 참조하지 말 것. 동적 require 대신 정적 import 우선.
 
 ### 자주 밟는 함정 체크리스트
 - [ ] `output:'export'` 깨는 기능(SSR/Server Action/Next API Route) 추가하지 않았는가?
@@ -60,3 +60,4 @@ npm run lint       # next lint
 
 ## 변경 이력
 - 2026-06-11: 초안 작성(규칙·제약·오류 로그 틀).
+- 2026-06-11: M2 — Gmail OAuth 실연동(start/callback), Gmail REST 목록/읽기, AES-256-GCM 자격증명 암호화, 세션 쿠키(httpOnly), 저장소 추상화(memory/KV). 오류 로그 1건 추가.

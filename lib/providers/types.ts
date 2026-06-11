@@ -29,6 +29,8 @@ export interface MailAccount {
 
 export interface MailMessage {
   id: string;
+  /** 메시지가 속한 계정 (통합 받은편지함에서 출처 구분) */
+  accountId: string;
   from: string;
   to: string[];
   subject: string;
@@ -36,6 +38,9 @@ export interface MailMessage {
   /** ISO 8601 */
   date: string;
   unread: boolean;
+  /** 본문 — getMessage에서만 채워짐 */
+  bodyText?: string;
+  bodyHtml?: string;
 }
 
 export interface MailDraft {

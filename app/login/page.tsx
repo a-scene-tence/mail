@@ -1,16 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { PROVIDERS } from '@/lib/providers/registry';
 import type { MailProvider } from '@/lib/providers/types';
 import { ProviderCard } from '@/components/ProviderCard';
+import { startGoogleLogin } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import { TextField } from '@/components/ui/TextField';
 
 export default function LoginPage() {
   const [selected, setSelected] = useState<MailProvider | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    // 콜백 실패 시 ?error=oauth 로 돌아온다 (Suspense 불필요한 location 직접 읽기).
+    const params = new URLSearchParams(window.location.search);
+    setError(params.get('error') === 'oauth');
+  }, []);
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
@@ -25,6 +33,12 @@ export default function LoginPage() {
           서비스를 선택해 로그인하면 메일을 불러옵니다.
         </p>
       </header>
+
+      {error && (
+        <p className="mb-8 border-t border-ink py-3 text-sm text-ink">
+          로그인에 실패했습니다. 다시 시도해 주세요.
+        </p>
+      )}
 
       {!selected ? (
         <section>
@@ -58,11 +72,12 @@ function AuthForm({
       {provider.auth === 'oauth' ? (
         <div className="mt-8 space-y-4">
           <p className="text-gray">
-            {provider.label} 계정으로 안전하게 로그인합니다. (OAuth 연동은 다음
-            단계)
+            {provider.label} 계정으로 안전하게 로그인합니다. 자격증명은 서버에서만
+            암호화 보관됩니다.
           </p>
-          {/* 다음 단계: /api/auth/google/start 로 리다이렉트 */}
-          <Button disabled>{provider.label}(으)로 계속</Button>
+          <Button onClick={() => startGoogleLogin()}>
+            {provider.label}(으)로 계속
+          </Button>
         </div>
       ) : (
         <form className="mt-8 space-y-6" onSubmit={(e) => e.preventDefault()}>
