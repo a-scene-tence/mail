@@ -2,10 +2,11 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { MailMessage } from '../../lib/providers/types.js';
 import { readSessionId } from '../../lib/server/session.js';
 import { resolveAccounts } from '../../lib/server/accounts.js';
-import { listGmail } from '../../lib/server/gmail.js';
+import { listInbox } from '../../lib/server/mailbox.js';
 
 // GET /api/messages/list?accountId=&limit=
 // 세션의 (전체 또는 특정) 계정에서 INBOX 목록을 모아 최신순 반환.
+// 계정별 조회 실패는 빈 배열로 무시해 나머지 계정을 정상 반환한다.
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
@@ -22,16 +23,13 @@ export default async function handler(
 
   const accountId =
     typeof req.query.accountId === 'string' ? req.query.accountId : undefined;
-  const limit = Math.min(
-    Number(req.query.limit) || 20,
-    50,
-  );
+  const limit = Math.min(Number(req.query.limit) || 20, 50);
 
   try {
     const accounts = await resolveAccounts(sessionId, accountId);
     const perAccount = await Promise.all(
-      accounts.map(({ account, accessToken }) =>
-        listGmail(account.id, accessToken, limit),
+      accounts.map((r) =>
+        listInbox(r, limit).catch(() => [] as MailMessage[]),
       ),
     );
     const messages: MailMessage[] = perAccount

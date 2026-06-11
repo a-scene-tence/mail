@@ -1,4 +1,4 @@
-import type { MailMessage } from '../providers/types.js';
+import type { MailDraft, MailMessage } from '../providers/types.js';
 
 // Gmail REST(v1) 호출 — access token 기반. 서버 전용.
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -128,4 +128,44 @@ export async function getGmail(
     `/messages/${messageId}?format=full`,
   );
   return toMailMessage(accountId, m, true);
+}
+
+// RFC 2047 encoded-word for non-ASCII subjects (Korean 등).
+function encodeSubject(s: string): string {
+  if (/^[\x00-\x7F]*$/.test(s)) return s;
+  return `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
+}
+
+function buildMime(from: string, draft: MailDraft): string {
+  const bodyB64 = Buffer.from(draft.body, 'utf8').toString('base64');
+  return [
+    `From: ${from}`,
+    `To: ${draft.to.join(', ')}`,
+    `Subject: ${encodeSubject(draft.subject)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    bodyB64,
+  ].join('\r\n');
+}
+
+/** Gmail REST로 메일 발송. */
+export async function sendGmail(
+  accessToken: string,
+  from: string,
+  draft: MailDraft,
+): Promise<{ id: string }> {
+  const raw = Buffer.from(buildMime(from, draft), 'utf8').toString('base64url');
+  const res = await fetch(`${API}/messages/send`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ raw }),
+  });
+  if (!res.ok) throw new Error(`Gmail send 실패: ${res.status}`);
+  const data = (await res.json()) as { id: string };
+  return { id: data.id };
 }

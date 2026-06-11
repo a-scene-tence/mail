@@ -91,5 +91,41 @@ HTML(SPA)/404가 나오면 루트 `/api`가 함수로 안 잡힌 것 → 아래 
 - Gmail 로그인 → 목록 → 읽기 3종 동작
 - 세션 쿠키 HttpOnly · 자격증명 클라이언트 미노출
 
+---
+
+## M3 검증 추가 항목
+
+### Gmail 발송 — gmail.send 스코프 추가
+- `GOOGLE_SCOPES`에 `gmail.send` 추가됨 → **기존 Gmail 계정은 재로그인 필요** (기존 refresh token에 발송 권한 없음).
+- 계정 추가 → Gmail(으)로 계속 → 재동의 → 발송 권한 획득.
+
+### 네이버 IMAP 사전 설정
+1. 네이버 메일 → 환경설정 → POP3/IMAP 설정 → **IMAP/SMTP 사용: ON** 저장.
+2. 2단계 인증 사용 시: 네이버 계정 보안 → **애플리케이션 비밀번호** 발급 → 로그인 화면에서 앱 비밀번호 사용.
+
+### 다음(카카오) IMAP 사전 설정
+- 다음 메일 → 환경설정 → 메일 외부 접속 설정 → **IMAP 사용 가능** 체크.
+
+### Outlook 주의
+- Microsoft는 소비자 계정의 **기본 인증(Basic Auth)을 비활성화**함 → 앱 비밀번호 방식 IMAP 로그인 불가.
+- Outlook 연동은 향후 OAuth 흐름 구현 시 가능. 현재는 UI에 표시되지만 로그인 시 인증 오류 발생.
+
+### M3 스모크 테스트
+```bash
+# IMAP 로그인 (curl로 직접 검증)
+curl -i -c /tmp/cookies.txt -X POST https://<project>.vercel.app/api/auth/imap/login \
+  -H 'Content-Type: application/json' \
+  -d '{"providerId":"naver","address":"you@naver.com","password":"앱비밀번호"}'
+# 기대: 200 {"ok":true,"account":{...}}
+
+# 로그인 후 목록 조회
+curl -i -b /tmp/cookies.txt https://<project>.vercel.app/api/messages/list
+# 기대: 200 {"messages":[...]}
+
+# Gmail 발송 (재로그인 후)
+# → UI 작성 화면(/compose)에서 계정 선택 → 발송
+```
+
 ## 변경 이력
 - 2026-06-11: M2 검증 런북 작성(Vercel 배포 기준).
+- 2026-06-11: M3 추가 — Gmail 발송 스코프/재동의, 네이버/다음 IMAP 설정, Outlook 제약, M3 스모크 테스트.

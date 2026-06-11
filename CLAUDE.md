@@ -57,12 +57,25 @@ npm run lint       # next lint
 ### 자주 밟는 함정 체크리스트
 - [ ] `output:'export'` 깨는 기능(SSR/Server Action/Next API Route) 추가하지 않았는가?
 - [ ] `next/image`에 `unoptimized` 유지했는가?
-- [ ] 서버 로직을 실수로 프론트(`app/`)에 넣지 않았는가? (→ `api/`로)
+- [ ] 서버 로직을 실수로 프론트(`app/`)에 넣지 않았는가? (→ `api/`·`lib/server/`로)
+- [ ] `lib/server/imap.ts`·`smtp.ts`·`mailbox.ts` 등 서버 전용 파일을 `app/`·`components/`·`lib/providers/`에서 import하지 않았는가? (imapflow/nodemailer가 static bundle에 포함되면 빌드 실패)
+- [ ] 새 `lib/server/` 파일의 상대 import에 `.js` 확장자가 붙어 있는가?
 - [ ] 자격증명을 클라이언트에 저장하지 않았는가?
 - [ ] `npm run build`가 `out/`를 에러 없이 생성하는가?
+- [ ] `grep -r 'imapflow\|nodemailer\|mailparser' out/`가 0건인가? (번들 누수 확인)
+
+## M3 — 제공자 디스패치 패턴 (2026-06-11 추가)
+
+- `lib/server/mailbox.ts`가 제공자 디스패처. 엔드포인트(`api/messages/*`)는 여기만 호출.
+- `StoredAccount.secret`: OAuth refresh token 또는 IMAP 앱 비밀번호 (암호화). 기존 `refreshToken` 필드 backward-compat 읽기(`accounts.ts`).
+- `resolveAccounts`는 복호화된 `secret`만 반환. access token 교환은 dispatcher 내부(oauth 분기만).
+- Gmail 발송: `gmail.send` 스코프 필요. 기존 Gmail 계정은 **재로그인(재동의) 필수**.
+- Outlook: Microsoft가 기본 인증(Basic Auth) 비활성화 → IMAP 비밀번호 로그인 불가. Naver/Daum이 실 테스트 대상.
+- 네이버: 메일 설정 → POP3/IMAP 사용 ON + 앱 비밀번호(2FA 시) 필요.
 
 ## 변경 이력
 - 2026-06-11: 초안 작성(규칙·제약·오류 로그 틀).
 - 2026-06-11: M2 — Gmail OAuth 실연동(start/callback), Gmail REST 목록/읽기, AES-256-GCM 자격증명 암호화, 세션 쿠키(httpOnly), 저장소 추상화(memory/KV). 오류 로그 1건 추가.
 - 2026-06-11: M2 검증 준비 — `DEPLOY.md`(Vercel 배포·검증 런북), `/api/health` 핑 엔드포인트 추가.
 - 2026-06-11: M2 배포 디버그 — `package.json`에 `"type":"module"` 추가(서버리스 ESM 파싱 오류 수정).
+- 2026-06-11: M3 — IMAP 수신(imapflow+mailparser), SMTP 발송(nodemailer), Gmail 발송(RFC822+gmail.send), 제공자 디스패처(mailbox.ts), IMAP 로그인 엔드포인트, 작성 화면. StoredAccount.secret 일반화.

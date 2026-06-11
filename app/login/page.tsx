@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { PROVIDERS } from '@/lib/providers/registry';
 import type { MailProvider } from '@/lib/providers/types';
 import { ProviderCard } from '@/components/ProviderCard';
-import { startGoogleLogin } from '@/lib/api-client';
+import { startGoogleLogin, imapLogin } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import { TextField } from '@/components/ui/TextField';
@@ -15,7 +15,6 @@ export default function LoginPage() {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    // 콜백 실패 시 ?error=oauth 로 돌아온다 (Suspense 불필요한 location 직접 읽기).
     const params = new URLSearchParams(window.location.search);
     setError(params.get('error') === 'oauth');
   }, []);
@@ -61,6 +60,24 @@ function AuthForm({
   provider: MailProvider;
   onBack: () => void;
 }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrMsg(null);
+    try {
+      await imapLogin(provider.id, email, password);
+      window.location.href = '/mail/';
+    } catch {
+      setErrMsg('로그인 실패 — 이메일/앱 비밀번호 또는 IMAP 설정을 확인해 주세요.');
+      setSubmitting(false);
+    }
+  }
+
   return (
     <section>
       <button type="button" onClick={onBack} className="eyebrow mb-8">
@@ -80,13 +97,15 @@ function AuthForm({
           </Button>
         </div>
       ) : (
-        <form className="mt-8 space-y-6" onSubmit={(e) => e.preventDefault()}>
+        <form className="mt-8 space-y-6" onSubmit={onSubmit}>
           <TextField
             id="address"
             label="이메일 주소"
             type="email"
             placeholder={`you@${provider.domain}`}
             autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
           />
           <TextField
             id="app-password"
@@ -94,13 +113,21 @@ function AuthForm({
             type="password"
             placeholder="앱 비밀번호"
             autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
           />
           <p className="text-xs text-gray">
-            IMAP({provider.imap?.host}) · SMTP({provider.smtp?.host}). 자격증명은
-            서버에서 암호화되어 보관됩니다. (연동은 다음 단계)
+            IMAP({provider.imap?.host}) · SMTP({provider.smtp?.host}).
+            자격증명은 서버에서 암호화 보관됩니다.
           </p>
-          <Button type="submit" disabled>
-            로그인
+          {errMsg && (
+            <p className="text-sm text-ink border-t border-ink pt-3">{errMsg}</p>
+          )}
+          <Button
+            type="submit"
+            disabled={submitting || !email || !password}
+          >
+            {submitting ? '로그인 중…' : '로그인'}
           </Button>
         </form>
       )}

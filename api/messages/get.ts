@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readSessionId } from '../../lib/server/session.js';
 import { resolveAccounts } from '../../lib/server/accounts.js';
-import { getGmail } from '../../lib/server/gmail.js';
+import { getMessage } from '../../lib/server/mailbox.js';
 
 // GET /api/messages/get?accountId=&id=
 // 지정 계정의 단일 메시지(본문 포함) 반환.
@@ -28,7 +28,7 @@ export default async function handler(
       res.status(404).json({ error: '계정을 찾을 수 없음' });
       return;
     }
-    const message = await getGmail(resolved.account.id, resolved.accessToken, id);
+    const message = await getMessage(resolved, id);
     res.status(200).json(message);
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });

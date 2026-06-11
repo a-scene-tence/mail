@@ -13,8 +13,8 @@ export interface StoredAccount {
   id: string; // `${providerId}:${address}`
   providerId: string;
   address: string;
-  /** 암호화된 OAuth refresh token */
-  refreshToken: Sealed;
+  /** 암호화된 자격증명 (OAuth refresh token 또는 IMAP 앱 비밀번호) */
+  secret: Sealed;
 }
 
 export interface CredentialStore {

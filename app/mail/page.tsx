@@ -28,9 +28,14 @@ export default function MailPage() {
         ← 뒤로
       </Link>
 
-      <header className="mb-10 mt-6">
-        <Label>Inbox</Label>
-        <h1 className="display mt-3">받은편지함</h1>
+      <header className="mb-10 mt-6 flex items-end justify-between">
+        <div>
+          <Label>Inbox</Label>
+          <h1 className="display mt-3">받은편지함</h1>
+        </div>
+        <Link href="/compose/" className="eyebrow">
+          작성 →
+        </Link>
       </header>
 
       {loading ? (

@@ -31,7 +31,7 @@ export default async function handler(
       id: accountId,
       providerId: 'gmail',
       address: email,
-      refreshToken: seal(refreshToken),
+      secret: seal(refreshToken),
     });
 
     // 기존 세션이 있으면 재사용, 없으면 새로 발급.

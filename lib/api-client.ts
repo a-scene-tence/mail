@@ -34,6 +34,18 @@ export function startGoogleLogin(): void {
   window.location.href = `${API_BASE}/api/auth/google/start`;
 }
 
+/** IMAP 계정 로그인 — 자격증명을 서버에 전송해 검증 후 세션 발급. */
+export async function imapLogin(
+  providerId: string,
+  address: string,
+  password: string,
+): Promise<void> {
+  await request('/api/auth/imap/login', {
+    method: 'POST',
+    body: JSON.stringify({ providerId, address, password }),
+  });
+}
+
 /** 프론트에서 쓰는 게이트웨이 — 모든 메일 동작은 백엔드를 경유한다. */
 export const mailApi: MailGateway = {
   async listMessages(opts: ListOptions) {
