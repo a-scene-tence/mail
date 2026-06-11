@@ -99,6 +99,21 @@ HTML(SPA)/404가 나오면 루트 `/api`가 함수로 안 잡힌 것 → 아래 
 - `GOOGLE_SCOPES`에 `gmail.send` 추가됨 → **기존 Gmail 계정은 재로그인 필요** (기존 refresh token에 발송 권한 없음).
 - 계정 추가 → Gmail(으)로 계속 → 재동의 → 발송 권한 획득.
 
+### OAuth 게시 상태 — `access_denied` 해결 (테스트 사용자 vs Production 게시)
+재로그인 시 `403 access_denied`("테스터만 액세스 가능")는 앱이 **Testing** 상태인데 로그인 계정이 **테스트 사용자 미등록**일 때 발생. 두 가지 해결책:
+
+**(A) Testing 유지 + 테스트 사용자 추가** — 가장 단순.
+- OAuth consent screen → **Test users → ADD USERS** → 로그인 계정 추가.
+- ⚠️ Testing 모드는 sensitive/restricted 스코프(gmail.*)에서 **refresh token이 7일 후 만료** → 7일마다 재로그인 필요.
+
+**(B) Production 게시(외부 배포)** — 지속 사용·다수 계정에 유리. (본 프로젝트 채택)
+1. OAuth consent screen → **Publishing status → PUBLISH APP** → "In production" 확인.
+2. 검증(Verification) 제출 화면이 떠도 **지금 제출 불필요** — 미검증 상태로도 우회 경로 동작.
+3. 재로그인 → **"확인되지 않은 앱"** 경고 → **고급 → {도메인}(으)로 이동(안전하지 않음)** → 동의.
+- 미검증 Production: restricted 스코프는 **최대 100명**까지 권한 부여 가능(본인+소수 검증엔 충분). refresh token 7일 만료 **없음**.
+- 경고 제거 + 100명 초과 공개는 Google **보안 심사(CASA, 수 주)** 필요 — 개인용이면 미검증 Production으로 충분.
+- 폴백: Production에서 restricted 스코프가 우회 없이 하드 차단되면 (A) Testing + 테스트 사용자로 전환.
+
 ### 네이버 IMAP 사전 설정
 1. 네이버 메일 → 환경설정 → POP3/IMAP 설정 → **IMAP/SMTP 사용: ON** 저장.
 2. 2단계 인증 사용 시: 네이버 계정 보안 → **애플리케이션 비밀번호** 발급 → 로그인 화면에서 앱 비밀번호 사용.
@@ -129,3 +144,4 @@ curl -i -b /tmp/cookies.txt https://<project>.vercel.app/api/messages/list
 ## 변경 이력
 - 2026-06-11: M2 검증 런북 작성(Vercel 배포 기준).
 - 2026-06-11: M3 추가 — Gmail 발송 스코프/재동의, 네이버/다음 IMAP 설정, Outlook 제약, M3 스모크 테스트.
+- 2026-06-11: OAuth 게시 상태 가이드 추가 — `access_denied` 해결(테스트 사용자 vs Production 게시), Testing 7일 토큰 만료·미검증 Production 100명 한도 주의.
