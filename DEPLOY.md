@@ -141,7 +141,18 @@ curl -i -b /tmp/cookies.txt https://<project>.vercel.app/api/messages/list
 # → UI 작성 화면(/compose)에서 계정 선택 → 발송
 ```
 
+### OAuth 콜백 실패 진단 — `?reason=` 코드
+콜백 실패 시 `/login/?error=oauth&reason=<stage>`로 리다이렉트되고 화면에 단계가 표시된다. Vercel Runtime Logs엔 `oauth callback 실패 @<stage>: <메시지>` 기록.
+
+| `reason` | 실패 단계 | 조치 |
+|---|---|---|
+| `token` | 토큰 교환(`exchangeCode`) | `GOOGLE_CLIENT_SECRET`/`GOOGLE_REDIRECT_URI` 확인, 기존 동의 해제 후 재동의 |
+| `email` | 프로필 조회(`fetchEmail`) | `userinfo.email`·`openid` 스코프 확인 |
+| `seal` | 자격증명 암호화(`seal`) | **`CREDENTIALS_ENCRYPTION_KEY`를 64자 hex로 설정**(`openssl rand -hex 32`) 후 redeploy |
+| `store` | 저장소 쓰기(`putAccount`/`linkSession`) | `CREDENTIAL_STORE=kv` + `KV_REST_API_URL`/`KV_REST_API_TOKEN` 주입 확인 |
+
 ## 변경 이력
 - 2026-06-11: M2 검증 런북 작성(Vercel 배포 기준).
 - 2026-06-11: M3 추가 — Gmail 발송 스코프/재동의, 네이버/다음 IMAP 설정, Outlook 제약, M3 스모크 테스트.
 - 2026-06-11: OAuth 게시 상태 가이드 추가 — `access_denied` 해결(테스트 사용자 vs Production 게시), Testing 7일 토큰 만료·미검증 Production 100명 한도 주의.
+- 2026-06-11: 콜백 `?reason=` 코드 진단표 추가(seal=암호화 키, store=KV 등). 실사례: `@seal` = `CREDENTIALS_ENCRYPTION_KEY` 미설정.
