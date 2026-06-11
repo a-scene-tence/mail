@@ -25,6 +25,7 @@ npm run lint       # next lint
   - ⇒ 동적 라우트는 정적 파라미터로만.
 - **메일/서버 로직은 정적 번들 밖**, 루트 `/api/*.ts`(Vercel 서버리스 함수)에 둔다. 프론트는 HTTPS로 호출.
 - 한 Vercel 배포가 정적 프론트(`out/`) + `/api/*`를 함께 호스팅.
+- 배포·검증 절차는 `DEPLOY.md` 참고. 라우팅 스모크 테스트: `GET /api/health` → `{"ok":true}`.
 
 ## 4. 코딩 규칙
 
@@ -61,3 +62,4 @@ npm run lint       # next lint
 ## 변경 이력
 - 2026-06-11: 초안 작성(규칙·제약·오류 로그 틀).
 - 2026-06-11: M2 — Gmail OAuth 실연동(start/callback), Gmail REST 목록/읽기, AES-256-GCM 자격증명 암호화, 세션 쿠키(httpOnly), 저장소 추상화(memory/KV). 오류 로그 1건 추가.
+- 2026-06-11: M2 검증 준비 — `DEPLOY.md`(Vercel 배포·검증 런북), `/api/health` 핑 엔드포인트 추가.

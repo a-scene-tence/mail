@@ -1,0 +1,94 @@
+# 배포 & 검증 가이드
+
+> 이 문서는 Vercel 배포와 M2(Gmail OAuth) 검증 절차를 담는다. 작업하며 지속 업데이트한다.
+
+## 아키텍처 한 줄
+한 Vercel 배포가 **정적 export 프론트(`out/`)** 와 **루트 `/api/*` 서버리스 함수**를 함께 호스팅한다. 프론트는 같은 오리진의 `/api/*`를 호출한다. (앱인토스 번들은 정적 프론트만 포함하고 같은 Vercel 도메인의 `/api/*`를 호출)
+
+> 서버리스는 무상태라 `memory` 저장소는 콜백→목록 호출 간 유지되지 않음 ⇒ **Vercel KV(Upstash Redis) 필수**(`CREDENTIAL_STORE=kv`). 자격증명은 서버 저장소에만 AES-256-GCM 암호화 보관.
+
+---
+
+## M2 검증 런북 (Vercel 배포)
+
+### 사전 결정값
+- **프로젝트명** → 안정 도메인 `https://<project>.vercel.app` 확정 (Preview 아님, **Production 도메인**).
+- 콜백 URL = `https://<project>.vercel.app/api/auth/google/callback`
+  → Google 콘솔의 "승인된 리디렉션 URI" 및 `GOOGLE_REDIRECT_URI` 와 **완전 일치**해야 함.
+
+### 1) Vercel 프로젝트 생성 + 1차 배포
+- `a-scene-tence/mail` 임포트, 브랜치 `claude/unified-email-client-9kpyp0`.
+- Framework Preset = **Next.js**(자동). Output Directory 별도 지정 불필요(`output:'export'`는 `next.config`가 처리).
+- 배포해서 **Production 도메인 확정**.
+
+### 2) Vercel KV(Upstash Redis) 연결
+- Vercel → **Storage → Create Database → Upstash for Redis** → 프로젝트에 **Connect**.
+- `KV_REST_API_URL`, `KV_REST_API_TOKEN` 환경변수 주입 확인(`lib/server/store.ts`의 `@vercel/kv`가 사용). 이름이 다르면 두 키를 수동 추가.
+
+### 3) Google Cloud 설정
+- **Gmail API 사용 설정** (안 하면 목록 호출 403).
+- **OAuth 동의 화면**: External(Testing 가능), **Test users**에 검증용 Gmail 계정 추가.
+- **OAuth 클라이언트 ID**: 유형 **Web application**, Authorized redirect URIs = 위 콜백 URL → `client_id`/`client_secret` 확보.
+
+### 4) Vercel 환경변수 (Production) → 저장 후 Redeploy
+
+| 키 | 값 |
+|---|---|
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google 콘솔 값 |
+| `GOOGLE_REDIRECT_URI` | `https://<project>.vercel.app/api/auth/google/callback` |
+| `APP_BASE_URL` | `https://<project>.vercel.app` |
+| `CREDENTIALS_ENCRYPTION_KEY` | `openssl rand -hex 32` |
+| `CREDENTIAL_STORE` | `kv` |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | (2단계 자동 주입) |
+| `NEXT_PUBLIC_API_BASE_URL` | 비움(같은 오리진) |
+
+### 5) 스모크 테스트 — API 라우팅 먼저 (가장 중요)
+```bash
+curl -i https://<project>.vercel.app/api/health
+# 기대: 200 {"ok":true,"service":"unified-mail-api"}
+
+curl -i https://<project>.vercel.app/api/messages/list
+# 기대: 200 {"messages":[]}   (세션 없음 → 빈 목록)
+```
+HTML(SPA)/404가 나오면 루트 `/api`가 함수로 안 잡힌 것 → 아래 "라우팅 폴백".
+
+### 6) OAuth E2E 워크스루
+1. `https://<project>.vercel.app` → **계정 추가** → **Gmail(으)로 계속**.
+2. "확인되지 않은 앱" 화면이면 **고급 → 이동**(Testing 상태 정상).
+3. 동의 후 `/mail/`로 리다이렉트 → **받은편지함 목록**(통합 INBOX, 최신순) 표시.
+4. 메일 클릭 → `/read/`에서 **제목·발신자·본문** 표시.
+5. 홈(`/`)에서 **연결된 계정** 표시.
+
+### 7) 보안 확인
+- DevTools → Application: `mail_session` 쿠키가 **HttpOnly·Secure**, 값은 불투명 id뿐.
+- `localStorage`/`sessionStorage`에 자격증명 없음. refresh token은 KV에 암호화 저장.
+
+---
+
+## 트러블슈팅
+
+| 증상 | 원인 | 조치 |
+|---|---|---|
+| `redirect_uri_mismatch` | 콜백 URL 불일치 | Google 콘솔·`GOOGLE_REDIRECT_URI`·실제 도메인 3곳 완전 일치 |
+| 콜백 후 `/login?error=oauth` | refresh_token 미발급/교환 실패 | 계정 보안에서 기존 앱 권한 해제 후 재동의 (재발급) |
+| 목록 빈 + 로그 403 | Gmail API 미사용 설정 | 3단계 Enable |
+| `access_denied` | Test users 미등록 | 동의화면에 계정 추가 |
+| `/api/*` 가 HTML/404 | 루트 함수 미인식 | 라우팅 폴백 |
+| `KV_REST_API_URL ... missing` | 환경변수 누락 | 2·4단계 추가 후 redeploy |
+
+> 1차 디버그: Vercel **Runtime Logs**에서 함수별 에러 확인.
+
+## 라우팅 폴백 (스모크 테스트 실패 시에만)
+단일 배포의 루트 `/api`는 정상 동작이 기대값이나, 함수로 안 잡히면:
+- (A) 최소 `vercel.json`으로 함수 런타임 명시, 또는
+- (B) **API를 별도 Vercel 프로젝트로 분리**(`NEXT_PUBLIC_API_BASE_URL`로 연결). 교차 출처가 되므로 쿠키 `SameSite=None; Secure` + CORS 헤더 코드 변경 필요(`lib/server/session.ts`, `api/*`).
+
+---
+
+## 검증 완료 기준 (DoD)
+- 스모크 테스트(`/api/health`, `/api/messages/list`) 통과
+- Gmail 로그인 → 목록 → 읽기 3종 동작
+- 세션 쿠키 HttpOnly · 자격증명 클라이언트 미노출
+
+## 변경 이력
+- 2026-06-11: M2 검증 런북 작성(Vercel 배포 기준).
