@@ -23,6 +23,7 @@
 
 ### 2) Vercel KV(Upstash Redis) 연결
 - Vercel → **Storage → Create Database → Upstash for Redis** → 프로젝트에 **Connect**.
+- **Primary Region: Washington D.C. (US East, 권장)** — Vercel 함수 기본 리전 `iad1`과 동일 리전이므로 KV 왕복 지연이 최소화됨. Seoul은 Vercel KV 통합에서 제공되지 않음.
 - `KV_REST_API_URL`, `KV_REST_API_TOKEN` 환경변수 주입 확인(`lib/server/store.ts`의 `@vercel/kv`가 사용). 이름이 다르면 두 키를 수동 추가.
 
 ### 3) Google Cloud 설정
