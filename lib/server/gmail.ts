@@ -108,10 +108,13 @@ export async function listGmail(
       gget<GmailMessage>(
         accessToken,
         `/messages/${x.id}?format=metadata${metaHeaders}`,
-      ).then((m) => toMailMessage(accountId, m, false)),
+      )
+        .then((m) => toMailMessage(accountId, m, false))
+        // 단일 메시지 조회 실패가 전체 목록을 깨뜨리지 않도록 무시.
+        .catch(() => null),
     ),
   );
-  return messages;
+  return messages.filter((m): m is MailMessage => m !== null);
 }
 
 /** 단일 메시지 (본문 포함). */
