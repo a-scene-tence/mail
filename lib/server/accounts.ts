@@ -1,6 +1,6 @@
-import { open } from './crypto';
-import { accessTokenFromRefresh } from './google';
-import { getStore, type StoredAccount } from './store';
+import { open } from './crypto.js';
+import { accessTokenFromRefresh } from './google.js';
+import { getStore, type StoredAccount } from './store.js';
 
 // 세션 → 연결된 계정 + 유효한 access token 해석. 서버 전용.
 

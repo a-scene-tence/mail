@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { buildAuthUrl } from '../../../lib/server/google';
-import { randomToken } from '../../../lib/server/crypto';
+import { buildAuthUrl } from '../../../lib/server/google.js';
+import { randomToken } from '../../../lib/server/crypto.js';
 
 // GET /api/auth/google/start
 // 동의 화면으로 302 리다이렉트. state는 CSRF 방지용 난수.

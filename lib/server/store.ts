@@ -1,5 +1,5 @@
 import { kv } from '@vercel/kv';
-import type { Sealed } from './crypto';
+import type { Sealed } from './crypto.js';
 
 // 자격증명/세션 저장소. 자격증명은 서버에만 보관(암호화)하고,
 // 클라이언트는 오직 불투명한 session id 만 쿠키로 가진다.

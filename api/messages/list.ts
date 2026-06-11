@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import type { MailMessage } from '../../lib/providers/types';
-import { readSessionId } from '../../lib/server/session';
-import { resolveAccounts } from '../../lib/server/accounts';
-import { listGmail } from '../../lib/server/gmail';
+import type { MailMessage } from '../../lib/providers/types.js';
+import { readSessionId } from '../../lib/server/session.js';
+import { resolveAccounts } from '../../lib/server/accounts.js';
+import { listGmail } from '../../lib/server/gmail.js';
 
 // GET /api/messages/list?accountId=&limit=
 // 세션의 (전체 또는 특정) 계정에서 INBOX 목록을 모아 최신순 반환.

@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { exchangeCode, fetchEmail } from '../../../lib/server/google';
-import { seal, randomToken } from '../../../lib/server/crypto';
-import { getStore } from '../../../lib/server/store';
+import { exchangeCode, fetchEmail } from '../../../lib/server/google.js';
+import { seal, randomToken } from '../../../lib/server/crypto.js';
+import { getStore } from '../../../lib/server/store.js';
 import {
   buildSessionCookie,
   readSessionId,
-} from '../../../lib/server/session';
+} from '../../../lib/server/session.js';
 
 // GET /api/auth/google/callback?code=&state=
 // code→token 교환 → 이메일 조회 → refresh token 암호화 저장 →

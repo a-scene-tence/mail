@@ -1,4 +1,4 @@
-import type { MailMessage } from '../providers/types';
+import type { MailMessage } from '../providers/types.js';
 
 // Gmail REST(v1) 호출 — access token 기반. 서버 전용.
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';

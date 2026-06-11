@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { readSessionId } from '../../lib/server/session';
-import { resolveAccounts } from '../../lib/server/accounts';
-import { getGmail } from '../../lib/server/gmail';
+import { readSessionId } from '../../lib/server/session.js';
+import { resolveAccounts } from '../../lib/server/accounts.js';
+import { getGmail } from '../../lib/server/gmail.js';
 
 // GET /api/messages/get?accountId=&id=
 // 지정 계정의 단일 메시지(본문 포함) 반환.

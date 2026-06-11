@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import type { MailAccount } from '../../lib/providers/types';
-import { readSessionId } from '../../lib/server/session';
-import { getStore } from '../../lib/server/store';
+import type { MailAccount } from '../../lib/providers/types.js';
+import { readSessionId } from '../../lib/server/session.js';
+import { getStore } from '../../lib/server/store.js';
 
 // GET /api/accounts/list
 // 세션에 연결된 계정 목록(식별자만, 자격증명 제외) 반환.
