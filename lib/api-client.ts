@@ -2,6 +2,7 @@ import type {
   ListOptions,
   Mailbox,
   MailAccount,
+  MailAttachment,
   MailDraft,
   MailGateway,
   MailMessage,
@@ -74,6 +75,39 @@ export async function imapLogin(
   }
 }
 
+/** 첨부파일 다운로드 URL (파일명/타입은 메타에서 쿼리로 전달). */
+export function attachmentUrl(
+  accountId: string,
+  messageId: string,
+  att: MailAttachment,
+  mailbox: Mailbox = 'inbox',
+): string {
+  const params = new URLSearchParams({
+    accountId,
+    messageId,
+    attachmentId: att.id,
+    mailbox,
+    filename: att.filename,
+    mimeType: att.mimeType,
+  });
+  return `${API_BASE}/api/messages/attachment?${params.toString()}`;
+}
+
+/** 첨부파일을 Blob으로 받아온다 (세션 쿠키 포함). */
+export async function fetchAttachment(
+  accountId: string,
+  messageId: string,
+  att: MailAttachment,
+  mailbox: Mailbox = 'inbox',
+): Promise<Blob> {
+  const res = await fetch(
+    attachmentUrl(accountId, messageId, att, mailbox),
+    { credentials: 'include' },
+  );
+  if (!res.ok) throw new Error(`첨부파일 다운로드 실패: ${res.status}`);
+  return res.blob();
+}
+
 /** 프론트에서 쓰는 게이트웨이 — 모든 메일 동작은 백엔드를 경유한다. */
 export const mailApi: MailGateway = {
   async listMessages(opts: ListOptions) {
@@ -82,6 +116,7 @@ export const mailApi: MailGateway = {
     if (opts.limit) params.set('limit', String(opts.limit));
     if (opts.cursor) params.set('cursor', opts.cursor);
     if (opts.mailbox) params.set('mailbox', opts.mailbox);
+    if (opts.query) params.set('q', opts.query);
     const qs = params.toString();
     const data = await request<{ messages: MailMessage[] }>(
       `/api/messages/list${qs ? `?${qs}` : ''}`,

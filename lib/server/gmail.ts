@@ -1,4 +1,8 @@
-import type { MailDraft, MailMessage } from '../providers/types.js';
+import type {
+  MailAttachment,
+  MailDraft,
+  MailMessage,
+} from '../providers/types.js';
 
 // Gmail REST(v1) 호출 — access token 기반. 서버 전용.
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -9,7 +13,8 @@ interface GmailHeader {
 }
 interface GmailPart {
   mimeType?: string;
-  body?: { data?: string; size?: number };
+  filename?: string;
+  body?: { data?: string; size?: number; attachmentId?: string };
   parts?: GmailPart[];
   headers?: GmailHeader[];
 }
@@ -62,6 +67,26 @@ function extractBody(payload?: GmailPart): {
   return out;
 }
 
+/** payload 트리에서 첨부파일(파일명+attachmentId 보유 파트)을 수집. */
+function extractAttachments(payload?: GmailPart): MailAttachment[] {
+  const out: MailAttachment[] = [];
+  const walk = (part?: GmailPart) => {
+    if (!part) return;
+    const aid = part.body?.attachmentId;
+    if (aid && part.filename) {
+      out.push({
+        id: aid,
+        filename: part.filename,
+        mimeType: part.mimeType ?? 'application/octet-stream',
+        size: part.body?.size ?? 0,
+      });
+    }
+    part.parts?.forEach(walk);
+  };
+  walk(payload);
+  return out;
+}
+
 function toMailMessage(
   accountId: string,
   m: GmailMessage,
@@ -90,20 +115,24 @@ function toMailMessage(
     base.bodyHtml = body.html;
     base.messageId = header(headers, 'Message-ID') || undefined;
     base.threadId = m.threadId;
+    const atts = extractAttachments(m.payload);
+    if (atts.length) base.attachments = atts;
   }
   return base;
 }
 
-/** 메일함 목록 (메타데이터). 기본 INBOX, label='SENT'면 보낸편지함. */
+/** 메일함 목록 (메타데이터). 기본 INBOX, label='SENT'면 보낸편지함. query면 전체 검색. */
 export async function listGmail(
   accountId: string,
   accessToken: string,
   limit = 20,
   label: 'INBOX' | 'SENT' = 'INBOX',
+  query?: string,
 ): Promise<MailMessage[]> {
+  const q = query ? `&q=${encodeURIComponent(query)}` : '';
   const list = await gget<{ messages?: { id: string }[] }>(
     accessToken,
-    `/messages?maxResults=${limit}&labelIds=${label}`,
+    `/messages?maxResults=${limit}&labelIds=${label}${q}`,
   );
   const ids = list.messages ?? [];
   const metaHeaders = '&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject';
@@ -187,6 +216,19 @@ export async function sendGmail(
   if (!res.ok) throw new Error(`Gmail send 실패: ${res.status}`);
   const data = (await res.json()) as { id: string };
   return { id: data.id };
+}
+
+/** 첨부파일 바이너리 내려받기. */
+export async function getGmailAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Buffer> {
+  const data = await gget<{ data?: string }>(
+    accessToken,
+    `/messages/${messageId}/attachments/${attachmentId}`,
+  );
+  return Buffer.from(data.data ?? '', 'base64url');
 }
 
 /** 메일을 휴지통으로 이동 (gmail.modify 스코프 필요). */

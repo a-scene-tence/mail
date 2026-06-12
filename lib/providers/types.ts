@@ -38,6 +38,15 @@ export interface MailAccount {
   address: string;
 }
 
+export interface MailAttachment {
+  /** 다운로드 식별자 — Gmail: attachmentId, IMAP: 첨부 배열 인덱스 */
+  id: string;
+  filename: string;
+  mimeType: string;
+  /** 바이트 크기 */
+  size: number;
+}
+
 export interface MailMessage {
   id: string;
   /** 메시지가 속한 계정 (통합 받은편지함에서 출처 구분) */
@@ -56,6 +65,8 @@ export interface MailMessage {
   messageId?: string;
   /** Gmail 스레드 식별자 — 회신을 같은 대화로 묶을 때 사용 */
   threadId?: string;
+  /** 첨부파일 메타데이터 — getMessage에서만 채워짐 (내용은 별도 다운로드) */
+  attachments?: MailAttachment[];
 }
 
 export interface MailDraft {
@@ -82,6 +93,8 @@ export interface ListOptions {
   cursor?: string;
   /** 받은편지함(기본) 또는 보낸편지함 */
   mailbox?: Mailbox;
+  /** 검색어 — 있으면 서버에서 메일함 전체 검색 (Gmail q / IMAP SEARCH) */
+  query?: string;
 }
 
 /** 제공자 게이트웨이 공통 인터페이스 (구현은 서버 또는 api-client 경유). */

@@ -2,8 +2,14 @@ import type { MailDraft, MailMessage, Mailbox } from '../providers/types.js';
 import { getProvider } from '../providers/registry.js';
 import type { ResolvedAccount } from './accounts.js';
 import { accessTokenFromRefresh } from './google.js';
-import { listGmail, getGmail, sendGmail, trashGmail } from './gmail.js';
-import { listImap, getImap, trashImap } from './imap.js';
+import {
+  listGmail,
+  getGmail,
+  sendGmail,
+  trashGmail,
+  getGmailAttachment,
+} from './gmail.js';
+import { listImap, getImap, trashImap, getImapAttachment } from './imap.js';
 import { sendSmtp } from './smtp.js';
 
 // 제공자 디스패처 — auth 종류(oauth/imap)에 따라 적합한 게이트웨이로 라우팅.
@@ -15,11 +21,12 @@ function providerOf(r: ResolvedAccount) {
   return p;
 }
 
-/** 메일함 목록 (기본 INBOX, mailbox='sent'면 보낸편지함). */
+/** 메일함 목록 (기본 INBOX, mailbox='sent'면 보낸편지함, query면 전체 검색). */
 export async function listMailbox(
   r: ResolvedAccount,
   limit: number,
   mailbox: Mailbox = 'inbox',
+  query?: string,
 ): Promise<MailMessage[]> {
   const p = providerOf(r);
   if (p.auth === 'oauth') {
@@ -29,6 +36,7 @@ export async function listMailbox(
       token,
       limit,
       mailbox === 'sent' ? 'SENT' : 'INBOX',
+      query,
     );
   }
   if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
@@ -39,6 +47,7 @@ export async function listMailbox(
     p.imap,
     limit,
     mailbox,
+    query,
   );
 }
 
@@ -55,6 +64,29 @@ export async function getMessage(
   }
   if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
   return getImap(r.account.id, r.account.address, r.secret, p.imap, id, mailbox);
+}
+
+/** 첨부파일 바이너리 내려받기. */
+export async function getAttachment(
+  r: ResolvedAccount,
+  messageId: string,
+  attachmentId: string,
+  mailbox: Mailbox = 'inbox',
+): Promise<Buffer> {
+  const p = providerOf(r);
+  if (p.auth === 'oauth') {
+    const token = await accessTokenFromRefresh(r.secret);
+    return getGmailAttachment(token, messageId, attachmentId);
+  }
+  if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
+  return getImapAttachment(
+    r.account.address,
+    r.secret,
+    p.imap,
+    messageId,
+    attachmentId,
+    mailbox,
+  );
 }
 
 /** 메일 발송. */

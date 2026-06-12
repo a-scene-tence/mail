@@ -1,7 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import type { AddressObject } from 'mailparser';
-import type { MailMessage, Mailbox } from '../providers/types.js';
+import type { MailAttachment, MailMessage, Mailbox } from '../providers/types.js';
 
 // IMAP 수신 게이트웨이 — imapflow + mailparser. 서버 전용.
 // Vercel 서버리스는 무상태라 요청마다 새 연결을 열고 finally에서 반드시 닫는다.
@@ -57,7 +57,7 @@ async function resolveMailbox(
   return named ? named.path : null;
 }
 
-/** 메일함 목록 (메타데이터). 기본 INBOX, mailbox='sent'면 보낸편지함. */
+/** 메일함 목록 (메타데이터). 기본 INBOX, mailbox='sent'면 보낸편지함. query면 전체 검색. */
 export async function listImap(
   accountId: string,
   address: string,
@@ -65,6 +65,7 @@ export async function listImap(
   cfg: ImapCfg,
   limit = 20,
   mailbox: Mailbox = 'inbox',
+  query?: string,
 ): Promise<MailMessage[]> {
   const client = makeClient(address, password, cfg);
   await client.connect();
@@ -73,18 +74,40 @@ export async function listImap(
     if (!path) return [];
     const lock = await client.getMailboxLock(path);
     try {
-      const total =
-        typeof client.mailbox === 'object' && client.mailbox
-          ? (client.mailbox as { exists: number }).exists
-          : 0;
-      if (!total) return [];
-      const start = Math.max(1, total - limit + 1);
+      // 검색이면 SEARCH로 UID 후보를 구해 마지막 limit개만 가져온다.
+      let range: string;
+      if (query && query.trim()) {
+        const uids = await client.search(
+          {
+            or: [
+              { subject: query },
+              { from: query },
+              { to: query },
+              { body: query },
+            ],
+          },
+          { uid: true },
+        );
+        if (!uids || uids.length === 0) return [];
+        range = uids.slice(-limit).join(',');
+      } else {
+        const total =
+          typeof client.mailbox === 'object' && client.mailbox
+            ? (client.mailbox as { exists: number }).exists
+            : 0;
+        if (!total) return [];
+        range = `${Math.max(1, total - limit + 1)}:*`;
+      }
       const out: MailMessage[] = [];
-      for await (const msg of client.fetch(`${start}:*`, {
-        envelope: true,
-        flags: true,
-        internalDate: true,
-      })) {
+      for await (const msg of client.fetch(
+        range,
+        {
+          envelope: true,
+          flags: true,
+          internalDate: true,
+        },
+        { uid: !!(query && query.trim()) },
+      )) {
         const env = msg.envelope;
         out.push({
           id: String(msg.uid),
@@ -133,6 +156,14 @@ export async function getImap(
         if (!msg.source) continue;
         const parsed = await simpleParser(msg.source);
         const env = msg.envelope;
+        const attachments: MailAttachment[] = (parsed.attachments ?? []).map(
+          (a, i) => ({
+            id: String(i),
+            filename: a.filename || `첨부파일-${i + 1}`,
+            mimeType: a.contentType || 'application/octet-stream',
+            size: a.size ?? 0,
+          }),
+        );
         found = {
           id,
           accountId,
@@ -145,10 +176,48 @@ export async function getImap(
           bodyText: parsed.text ?? undefined,
           bodyHtml: typeof parsed.html === 'string' ? parsed.html : undefined,
           messageId: parsed.messageId ?? undefined,
+          attachments: attachments.length ? attachments : undefined,
         };
       }
       if (!found) throw new Error('메시지를 찾을 수 없음');
       return found;
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
+}
+
+/** 첨부파일 바이너리 내려받기. attachmentId = getImap이 매긴 배열 인덱스. */
+export async function getImapAttachment(
+  address: string,
+  password: string,
+  cfg: ImapCfg,
+  id: string,
+  attachmentId: string,
+  mailbox: Mailbox = 'inbox',
+): Promise<Buffer> {
+  const client = makeClient(address, password, cfg);
+  await client.connect();
+  try {
+    const path = await resolveMailbox(client, mailbox);
+    if (!path) throw new Error('메일함을 찾을 수 없음');
+    const lock = await client.getMailboxLock(path);
+    try {
+      const idx = Number(attachmentId);
+      for await (const msg of client.fetch(
+        String(Number(id)),
+        { uid: true, source: true },
+        { uid: true },
+      )) {
+        if (!msg.source) continue;
+        const parsed = await simpleParser(msg.source);
+        const att = parsed.attachments?.[idx];
+        if (!att) throw new Error('첨부파일을 찾을 수 없음');
+        return att.content;
+      }
+      throw new Error('메시지를 찾을 수 없음');
     } finally {
       lock.release();
     }

@@ -2,9 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { listAccounts, mailApi } from '@/lib/api-client';
 import type { MailMessage, Mailbox } from '@/lib/providers/types';
+import { getProvider } from '@/lib/providers/registry';
 import { MailListItem } from '@/components/MailListItem';
 import { Label } from '@/components/ui/Label';
 
@@ -19,10 +24,25 @@ export default function MailPage() {
     queryFn: listAccounts,
     retry: false,
   });
+  const accounts = accountsQ.data ?? [];
+
   const [mailbox, setMailbox] = useState<Mailbox>('inbox');
+  // 계정 필터 — undefined=전체, 아니면 account.id.
+  const [accountId, setAccountId] = useState<string | undefined>(undefined);
+  // 제출된 검색어(입력 중 값과 분리해 Enter 시에만 서버 조회).
+  const [searchInput, setSearchInput] = useState('');
+  const [query, setQuery] = useState('');
+
   const messagesQ = useQuery({
-    queryKey: ['messages', mailbox],
-    queryFn: () => mailApi.listMessages({ limit: 30, mailbox }),
+    queryKey: ['messages', accountId ?? 'all', mailbox, query],
+    queryFn: () =>
+      mailApi.listMessages({
+        limit: 30,
+        mailbox,
+        accountId,
+        query: query || undefined,
+      }),
+    placeholderData: keepPreviousData,
     retry: false,
   });
 
@@ -31,23 +51,63 @@ export default function MailPage() {
   const [deleting, setDeleting] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
 
+  function resetSelect() {
+    setSelectMode(false);
+    setSelected(new Map());
+    setActionErr(null);
+  }
+
   function switchBox(b: Mailbox) {
     if (b === mailbox) return;
     setMailbox(b);
-    setSelectMode(false);
-    setSelected(new Map());
-    setActionErr(null);
+    resetSelect();
+    // 반대 탭을 미리 적재해 전환 체감 단축.
+    const other: Mailbox = b === 'inbox' ? 'sent' : 'inbox';
+    queryClient.prefetchQuery({
+      queryKey: ['messages', accountId ?? 'all', other, query],
+      queryFn: () =>
+        mailApi.listMessages({
+          limit: 30,
+          mailbox: other,
+          accountId,
+          query: query || undefined,
+        }),
+    });
   }
+
+  function switchAccount(id: string | undefined) {
+    if (id === accountId) return;
+    setAccountId(id);
+    resetSelect();
+  }
+
+  function onSearchSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setQuery(searchInput.trim());
+    resetSelect();
+  }
+
+  function clearSearch() {
+    setSearchInput('');
+    setQuery('');
+  }
+
+  // 계정 탭 — 전체 + 연결된 계정별(라벨은 제공자명, 동일 제공자 복수면 주소 병기).
+  const providerCount = new Map<string, number>();
+  accounts.forEach((a) =>
+    providerCount.set(a.providerId, (providerCount.get(a.providerId) ?? 0) + 1),
+  );
+  const accountTabs = accounts.map((a) => {
+    const label = getProvider(a.providerId)?.label ?? a.providerId;
+    return {
+      id: a.id,
+      label: (providerCount.get(a.providerId) ?? 0) > 1 ? a.address : label,
+    };
+  });
 
   const messages = messagesQ.data ?? [];
-  const hasAccount = (accountsQ.data ?? []).length > 0;
+  const hasAccount = accounts.length > 0;
   const loading = accountsQ.isLoading || messagesQ.isLoading;
-
-  function exitSelect() {
-    setSelectMode(false);
-    setSelected(new Map());
-    setActionErr(null);
-  }
 
   function toggle(m: MailMessage) {
     const k = keyOf(m);
@@ -83,7 +143,7 @@ export default function MailPage() {
         return next;
       });
     } else {
-      exitSelect();
+      resetSelect();
     }
   }
 
@@ -112,7 +172,7 @@ export default function MailPage() {
         <div className="flex items-center gap-5">
           {messages.length > 0 &&
             (selectMode ? (
-              <button type="button" onClick={exitSelect} className="eyebrow hover:text-ink">
+              <button type="button" onClick={resetSelect} className="eyebrow hover:text-ink">
                 취소
               </button>
             ) : (
@@ -148,6 +208,56 @@ export default function MailPage() {
           </button>
         ))}
       </nav>
+
+      {accountTabs.length > 1 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          <AccountChip
+            label="전체"
+            active={accountId === undefined}
+            onClick={() => switchAccount(undefined)}
+          />
+          {accountTabs.map((t) => (
+            <AccountChip
+              key={t.id}
+              label={t.label}
+              active={accountId === t.id}
+              onClick={() => switchAccount(t.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {hasAccount && (
+        <form onSubmit={onSearchSubmit} className="mb-6">
+          <div className="flex items-center gap-3 border-b border-hairline focus-within:border-ink">
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="메일 검색 (제목·보낸사람·내용)"
+              className="w-full bg-transparent py-2 text-base text-ink outline-none placeholder:text-gray"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={clearSearch}
+                className="eyebrow shrink-0 hover:text-ink"
+              >
+                지우기
+              </button>
+            ) : (
+              <button type="submit" className="eyebrow shrink-0 hover:text-ink">
+                검색
+              </button>
+            )}
+          </div>
+          {query && (
+            <p className="mt-2 text-xs text-gray">
+              ‘{query}’ 검색결과 {messagesQ.isFetching ? '검색 중…' : `${messages.length}건`}
+            </p>
+          )}
+        </form>
+      )}
 
       {selectMode && (
         <div className="mb-2 flex items-center justify-between border-t border-ink py-3">
@@ -207,13 +317,43 @@ export default function MailPage() {
         </section>
       ) : hasAccount ? (
         <Notice
-          text={mailbox === 'sent' ? '보낸 메일이 없습니다.' : '받은 메일이 없습니다.'}
+          text={
+            query
+              ? `‘${query}’에 대한 검색결과가 없습니다.`
+              : mailbox === 'sent'
+                ? '보낸 메일이 없습니다.'
+                : '받은 메일이 없습니다.'
+          }
           cta={false}
         />
       ) : (
         <Notice text="아직 연결된 계정이 없습니다." cta />
       )}
     </main>
+  );
+}
+
+function AccountChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs tracking-tight transition-colors ${
+        active
+          ? 'border-ink bg-ink text-paper'
+          : 'border-hairline text-gray hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

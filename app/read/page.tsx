@@ -3,9 +3,16 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { mailApi } from '@/lib/api-client';
-import type { Mailbox } from '@/lib/providers/types';
+import { mailApi, attachmentUrl, fetchAttachment } from '@/lib/api-client';
+import type { Mailbox, MailAttachment } from '@/lib/providers/types';
 import { Label } from '@/components/ui/Label';
+
+function formatBytes(n: number): string {
+  if (!n) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export default function ReadPage() {
   // 정적 export 호환: useSearchParams(Suspense 필요) 대신 location을 직접 읽는다.
@@ -58,6 +65,28 @@ export default function ReadPage() {
       params?.mailbox ?? 'inbox'
     }`;
 
+  async function downloadAttachment(att: MailAttachment) {
+    if (!params) return;
+    try {
+      const blob = await fetchAttachment(
+        params.accountId,
+        params.id,
+        att,
+        params.mailbox,
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = att.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('첨부파일을 내려받지 못했습니다.');
+    }
+  }
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
       <Link href="/mail" className="eyebrow">
@@ -102,6 +131,45 @@ export default function ReadPage() {
             <p className="mt-3 text-sm text-ink">
               삭제에 실패했습니다. 다시 시도해 주세요.
             </p>
+          )}
+
+          {data.attachments && data.attachments.length > 0 && (
+            <div className="mt-6 border-t border-hairline pt-4">
+              <p className="eyebrow mb-3">첨부파일 {data.attachments.length}</p>
+              <div className="flex flex-wrap gap-2">
+                {data.attachments.map((att) => (
+                  <button
+                    key={att.id}
+                    type="button"
+                    onClick={() => downloadAttachment(att)}
+                    className="flex items-center gap-2 rounded border border-hairline px-3 py-2 text-sm text-ink hover:bg-paper-off"
+                  >
+                    <span className="max-w-[200px] truncate">{att.filename}</span>
+                    {att.size ? (
+                      <span className="shrink-0 text-xs text-gray">
+                        {formatBytes(att.size)}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+              {/* 이미지 첨부는 인라인 미리보기 */}
+              {data.attachments
+                .filter((a) => a.mimeType.startsWith('image/'))
+                .map((att) => (
+                  <img
+                    key={`prev-${att.id}`}
+                    src={attachmentUrl(
+                      params!.accountId,
+                      params!.id,
+                      att,
+                      params!.mailbox,
+                    )}
+                    alt={att.filename}
+                    className="mt-3 max-h-80 rounded border border-hairline"
+                  />
+                ))}
+            </div>
           )}
 
           <div className="mt-8 border-t border-hairline pt-8">

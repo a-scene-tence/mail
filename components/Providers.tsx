@@ -9,7 +9,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: false },
+          queries: {
+            // 재방문·탭 전환 시 즉시 캐시 표시(깜빡임 완화). 1분간 신선.
+            staleTime: 60_000,
+            gcTime: 10 * 60_000,
+            retry: 1,
+            refetchOnWindowFocus: false,
+          },
         },
       }),
   );

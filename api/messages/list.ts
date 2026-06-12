@@ -25,12 +25,13 @@ export default async function handler(
     typeof req.query.accountId === 'string' ? req.query.accountId : undefined;
   const limit = Math.min(Number(req.query.limit) || 20, 50);
   const mailbox = req.query.mailbox === 'sent' ? 'sent' : 'inbox';
+  const query = typeof req.query.q === 'string' ? req.query.q : undefined;
 
   try {
     const accounts = await resolveAccounts(sessionId, accountId);
     const perAccount = await Promise.all(
       accounts.map((r) =>
-        listMailbox(r, limit, mailbox).catch(() => [] as MailMessage[]),
+        listMailbox(r, limit, mailbox, query).catch(() => [] as MailMessage[]),
       ),
     );
     const messages: MailMessage[] = perAccount
