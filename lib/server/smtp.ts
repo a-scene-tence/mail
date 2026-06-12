@@ -27,6 +27,9 @@ export async function sendSmtp(
     to: draft.to,
     subject: draft.subject,
     text: draft.body,
+    // 회신 스레드 연결 헤더 (있을 때만).
+    inReplyTo: draft.inReplyTo,
+    references: draft.references,
   });
   return { id: info.messageId };
 }

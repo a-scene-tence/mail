@@ -1,15 +1,60 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { listAccounts, mailApi } from '@/lib/api-client';
+import type { MailMessage } from '@/lib/providers/types';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import { TextField } from '@/components/ui/TextField';
 import { Textarea } from '@/components/ui/Textarea';
 
+// "Name <a@b.com>" 또는 "a@b.com"에서 이메일 주소만 추출.
+function parseAddress(raw: string): string {
+  const angled = raw.match(/<([^>]+)>/);
+  if (angled) return angled[1].trim();
+  const token = raw.split(/[\s,]+/).find((t) => t.includes('@'));
+  return (token ?? raw).trim();
+}
+
+// 회신/전달 시 원본 인용 블록.
+function quoteBody(src: MailMessage): string {
+  const original = src.bodyText ?? src.snippet ?? '';
+  return [
+    '',
+    '',
+    '---------- 원본 메일 ----------',
+    `보낸사람: ${src.from}`,
+    `날짜: ${new Date(src.date).toLocaleString('ko-KR')}`,
+    `제목: ${src.subject}`,
+    '',
+    original,
+  ].join('\n');
+}
+
+function prefix(tag: string, subject: string): string {
+  const re = new RegExp(`^\\s*${tag}:`, 'i');
+  return re.test(subject) ? subject : `${tag}: ${subject}`;
+}
+
 export default function ComposePage() {
+  // 정적 export 호환: location을 직접 읽는다.
+  const [ctx, setCtx] = useState<{
+    mode: 'reply' | 'forward' | null;
+    accountId: string;
+    srcId: string;
+  } | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const m = q.get('mode');
+    setCtx({
+      mode: m === 'reply' || m === 'forward' ? m : null,
+      accountId: q.get('accountId') ?? '',
+      srcId: q.get('srcId') ?? '',
+    });
+  }, []);
+
   const accountsQ = useQuery({
     queryKey: ['accounts'],
     queryFn: listAccounts,
@@ -17,14 +62,49 @@ export default function ComposePage() {
   });
   const accounts = accountsQ.data ?? [];
 
+  // 회신/전달 원본 로드 (srcId 있을 때만).
+  const sourceQ = useQuery({
+    queryKey: ['message', ctx?.accountId, ctx?.srcId],
+    queryFn: () => mailApi.getMessage(ctx!.accountId, ctx!.srcId),
+    enabled: !!ctx?.srcId && !!ctx?.accountId,
+    retry: false,
+  });
+
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  // 회신 스레드 연결 정보 (전달은 새 대화라 비움).
+  const [thread, setThread] = useState<{
+    inReplyTo?: string;
+    references?: string[];
+    threadId?: string;
+  }>({});
+  const [prefilled, setPrefilled] = useState(false);
 
-  const accountId = from || accounts[0]?.id || '';
+  // 원본이 도착하면 한 번만 프리필.
+  useEffect(() => {
+    if (prefilled || !ctx?.mode || !sourceQ.data) return;
+    const src = sourceQ.data;
+    setFrom(ctx.accountId);
+    if (ctx.mode === 'reply') {
+      setTo(parseAddress(src.from));
+      setSubject(prefix('Re', src.subject));
+      setThread({
+        inReplyTo: src.messageId,
+        references: src.messageId ? [src.messageId] : undefined,
+        threadId: src.threadId,
+      });
+    } else {
+      setSubject(prefix('Fwd', src.subject));
+    }
+    setBody(quoteBody(src));
+    setPrefilled(true);
+  }, [prefilled, ctx, sourceQ.data]);
+
+  const accountId = from || ctx?.accountId || accounts[0]?.id || '';
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,7 +116,15 @@ export default function ComposePage() {
     setSending(true);
     setErrMsg(null);
     try {
-      await mailApi.sendMessage(accountId, { to: toList, subject, body });
+      await mailApi.sendMessage(accountId, {
+        to: toList,
+        subject,
+        body,
+        // 회신일 때만 스레드 헤더 포함.
+        inReplyTo: thread.inReplyTo,
+        references: thread.references,
+        threadId: thread.threadId,
+      });
       window.location.href = '/mail/';
     } catch {
       setErrMsg('발송에 실패했습니다. 다시 시도해 주세요.');
@@ -44,8 +132,10 @@ export default function ComposePage() {
     }
   }
 
-  const canSubmit =
-    !sending && accountId && to.trim() && subject && body;
+  const canSubmit = !sending && accountId && to.trim() && subject && body;
+  const heading =
+    ctx?.mode === 'reply' ? '회신' : ctx?.mode === 'forward' ? '전달' : '메일 작성';
+  const loadingSource = !!ctx?.srcId && sourceQ.isLoading;
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
@@ -55,10 +145,10 @@ export default function ComposePage() {
 
       <header className="mb-10 mt-6">
         <Label>Compose</Label>
-        <h1 className="display mt-3">메일 작성</h1>
+        <h1 className="display mt-3">{heading}</h1>
       </header>
 
-      {accountsQ.isLoading ? (
+      {accountsQ.isLoading || loadingSource ? (
         <div className="h-4 w-32 animate-pulse bg-hairline" />
       ) : accounts.length === 0 ? (
         <p className="text-gray">

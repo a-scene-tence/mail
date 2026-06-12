@@ -114,10 +114,51 @@ export async function getImap(
           unread: !(msg.flags?.has('\\Seen')),
           bodyText: parsed.text ?? undefined,
           bodyHtml: typeof parsed.html === 'string' ? parsed.html : undefined,
+          messageId: parsed.messageId ?? undefined,
         };
       }
       if (!found) throw new Error('메시지를 찾을 수 없음');
       return found;
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
+}
+
+// 휴지통으로 쓸 폴백 폴더 이름 후보 (specialUse 미지원 서버 대비).
+const TRASH_FALLBACKS = ['Trash', '[Gmail]/Trash', 'Deleted Messages', '휴지통'];
+
+/** 휴지통 폴더 경로 탐색 — specialUse '\\Trash' 우선, 없으면 알려진 이름. */
+async function findTrashPath(client: ImapFlow): Promise<string | null> {
+  const boxes = await client.list();
+  const special = boxes.find((b) => b.specialUse === '\\Trash');
+  if (special) return special.path;
+  const named = boxes.find((b) => TRASH_FALLBACKS.includes(b.path));
+  return named ? named.path : null;
+}
+
+/** 메일을 휴지통으로 이동. 휴지통 폴더가 없으면 \Deleted 플래그+expunge로 폴백. */
+export async function trashImap(
+  address: string,
+  password: string,
+  cfg: ImapCfg,
+  id: string,
+): Promise<void> {
+  const client = makeClient(address, password, cfg);
+  await client.connect();
+  try {
+    const trashPath = await findTrashPath(client);
+    const lock = await client.getMailboxLock('INBOX');
+    try {
+      const uid = String(Number(id));
+      if (trashPath) {
+        await client.messageMove(uid, trashPath, { uid: true });
+      } else {
+        // 휴지통이 없으면 삭제 플래그 후 영구 제거.
+        await client.messageDelete(uid, { uid: true });
+      }
     } finally {
       lock.release();
     }

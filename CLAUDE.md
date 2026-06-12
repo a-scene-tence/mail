@@ -73,6 +73,14 @@ npm run lint       # next lint
 - Outlook: Microsoft가 기본 인증(Basic Auth) 비활성화 → IMAP 비밀번호 로그인 불가. Naver/Daum이 실 테스트 대상.
 - 네이버: 메일 설정 → POP3/IMAP 사용 ON + 앱 비밀번호(2FA 시) 필요.
 
+## M4 — 메일 관리(삭제/회신/전달) (2026-06-12 추가)
+
+- 삭제 = **휴지통 이동(복구 가능)**. `mailbox.deleteMessage` 디스패치 → Gmail `trashGmail`(`/messages/{id}/trash`, `gmail.modify` 스코프), IMAP `trashImap`(specialUse `\\Trash` 폴더 탐색 후 `messageMove`, 없으면 `messageDelete` 폴백).
+- **Gmail 삭제는 `gmail.modify` 스코프 필요** → 기존 Gmail 계정 **재로그인(재동의) 필수**(gmail.send 때와 동일). `GOOGLE_SCOPES`에서 `gmail.readonly`를 `gmail.modify`로 대체(modify가 읽기 포함).
+- 회신/전달 = 발송 파이프라인 재사용. 작성 화면이 원본을 `getMessage`로 다시 불러 프리필(URL엔 `mode/accountId/srcId`만, 큰 본문 미포함). 회신은 `In-Reply-To`/`References` 헤더 + Gmail `threadId`로 스레드 연결, 전달은 새 대화.
+- `MailMessage.messageId`(RFC Message-ID)·`threadId`, `MailDraft.inReplyTo`/`references`/`threadId` 추가.
+- 죽은 스텁 `lib/providers/gmail.ts` 삭제(`lib/providers/imap.ts`와 동일 사유 — 미사용 + MailGateway 변경 동기화 부담).
+
 ## 변경 이력
 - 2026-06-11: 초안 작성(규칙·제약·오류 로그 틀).
 - 2026-06-11: M2 — Gmail OAuth 실연동(start/callback), Gmail REST 목록/읽기, AES-256-GCM 자격증명 암호화, 세션 쿠키(httpOnly), 저장소 추상화(memory/KV). 오류 로그 1건 추가.
@@ -81,3 +89,4 @@ npm run lint       # next lint
 - 2026-06-11: M3 — IMAP 수신(imapflow+mailparser), SMTP 발송(nodemailer), Gmail 발송(RFC822+gmail.send), 제공자 디스패처(mailbox.ts), IMAP 로그인 엔드포인트, 작성 화면. StoredAccount.secret 일반화.
 - 2026-06-11: M3 검증 — OAuth `access_denied`(Testing 테스트 사용자 미등록) 진단. Production 게시(외부 배포) 경로 채택, `DEPLOY.md`에 게시 상태 가이드 추가.
 - 2026-06-11: M3 검증 — 콜백 "로그인 실패" 진단 패치(`?reason=<stage>` 노출). 실원인은 `CREDENTIALS_ENCRYPTION_KEY` Vercel 미설정(`@seal`). 환경변수 설정으로 해결. `DEPLOY.md`에 `?reason=` 진단표 추가.
+- 2026-06-12: M4 — 메일 삭제(휴지통)·회신·전달(스레드 연결). `api/messages/delete`, `trashGmail`/`trashImap`, `gmail.modify` 스코프, 작성 화면 reply/forward 프리필. 죽은 스텁 `lib/providers/gmail.ts` 제거.

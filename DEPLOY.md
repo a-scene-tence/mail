@@ -151,8 +151,28 @@ curl -i -b /tmp/cookies.txt https://<project>.vercel.app/api/messages/list
 | `seal` | 자격증명 암호화(`seal`) | **`CREDENTIALS_ENCRYPTION_KEY`를 64자 hex로 설정**(`openssl rand -hex 32`) 후 redeploy |
 | `store` | 저장소 쓰기(`putAccount`/`linkSession`) | `CREDENTIAL_STORE=kv` + `KV_REST_API_URL`/`KV_REST_API_TOKEN` 주입 확인 |
 
+---
+
+## M4 검증 — 삭제 / 회신 / 전달
+
+### 삭제 = 휴지통 이동 (gmail.modify 스코프)
+- `GOOGLE_SCOPES`에서 `gmail.readonly` → `gmail.modify`로 변경(modify가 읽기 포함) → **기존 Gmail 계정 재로그인 필요**(휴지통 이동 권한 없음). 계정 추가 → Gmail(으)로 계속 → 재동의.
+- Gmail: `/read`에서 **삭제** → `/messages/{id}/trash` → Gmail 휴지통으로 이동(복구 가능).
+- IMAP(네이버/다음): `specialUse \\Trash` 폴더 자동 탐색 후 이동. 못 찾으면 폴백 이름(`Trash`/`[Gmail]/Trash`/`Deleted Messages`/`휴지통`), 그래도 없으면 `\Deleted`+expunge(영구 삭제)로 폴백.
+
+### 회신 / 전달 = 스레드 연결
+- `/read` → **회신/전달** → `/compose?mode=reply|forward&accountId=&srcId=`로 이동, 작성 화면이 원본을 다시 불러 프리필(`Re:`/`Fwd:` 제목 + 원문 인용).
+- 회신: `In-Reply-To`/`References` 헤더(+ Gmail `threadId`)로 받는 쪽에서 같은 대화로 묶임. 전달: 새 대화.
+
+### M4 검증 체크
+1. Gmail 재로그인(modify 동의) → 메일 열기 → 삭제 → 받은편지함에서 사라지고 Gmail 휴지통에 존재.
+2. 회신 → 프리필 확인 → 발송 → 원 발신자 메일함에서 동일 스레드로 표시.
+3. 전달 → 받는사람 입력 → 발송.
+4. 네이버(IMAP) 동일 검증(휴지통 폴더 이동 확인).
+
 ## 변경 이력
 - 2026-06-11: M2 검증 런북 작성(Vercel 배포 기준).
 - 2026-06-11: M3 추가 — Gmail 발송 스코프/재동의, 네이버/다음 IMAP 설정, Outlook 제약, M3 스모크 테스트.
 - 2026-06-11: OAuth 게시 상태 가이드 추가 — `access_denied` 해결(테스트 사용자 vs Production 게시), Testing 7일 토큰 만료·미검증 Production 100명 한도 주의.
 - 2026-06-11: 콜백 `?reason=` 코드 진단표 추가(seal=암호화 키, store=KV 등). 실사례: `@seal` = `CREDENTIALS_ENCRYPTION_KEY` 미설정.
+- 2026-06-12: M4 추가 — 삭제(휴지통, gmail.modify 재로그인)·회신·전달(스레드 연결) 검증 항목.

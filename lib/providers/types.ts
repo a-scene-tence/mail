@@ -41,12 +41,22 @@ export interface MailMessage {
   /** 본문 — getMessage에서만 채워짐 */
   bodyText?: string;
   bodyHtml?: string;
+  /** RFC Message-ID 헤더 — 회신 스레드 연결용 (getMessage에서 채워짐) */
+  messageId?: string;
+  /** Gmail 스레드 식별자 — 회신을 같은 대화로 묶을 때 사용 */
+  threadId?: string;
 }
 
 export interface MailDraft {
   to: string[];
   subject: string;
   body: string;
+  /** 회신 시 원본 Message-ID (In-Reply-To 헤더) */
+  inReplyTo?: string;
+  /** 회신 시 참조 체인 (References 헤더) */
+  references?: string[];
+  /** Gmail 회신을 같은 스레드로 묶을 때 */
+  threadId?: string;
 }
 
 export interface ListOptions {
@@ -61,4 +71,5 @@ export interface MailGateway {
   listMessages(opts: ListOptions): Promise<MailMessage[]>;
   getMessage(accountId: string, messageId: string): Promise<MailMessage>;
   sendMessage(accountId: string, draft: MailDraft): Promise<{ id: string }>;
+  deleteMessage(accountId: string, messageId: string): Promise<{ ok: true }>;
 }

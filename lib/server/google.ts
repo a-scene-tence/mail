@@ -6,7 +6,8 @@ import { OAuth2Client } from 'google-auth-library';
 export const GOOGLE_SCOPES = [
   'openid',
   'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/gmail.readonly',
+  // gmail.modify는 읽기/발송/휴지통 이동을 모두 포함 (삭제=trash 권한 제공).
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.send',
 ];
 

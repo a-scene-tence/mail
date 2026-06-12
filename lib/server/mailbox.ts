@@ -2,8 +2,8 @@ import type { MailDraft, MailMessage } from '../providers/types.js';
 import { getProvider } from '../providers/registry.js';
 import type { ResolvedAccount } from './accounts.js';
 import { accessTokenFromRefresh } from './google.js';
-import { listGmail, getGmail, sendGmail } from './gmail.js';
-import { listImap, getImap } from './imap.js';
+import { listGmail, getGmail, sendGmail, trashGmail } from './gmail.js';
+import { listImap, getImap, trashImap } from './imap.js';
 import { sendSmtp } from './smtp.js';
 
 // 제공자 디스패처 — auth 종류(oauth/imap)에 따라 적합한 게이트웨이로 라우팅.
@@ -55,4 +55,20 @@ export async function sendMail(
   }
   if (!p.smtp) throw new Error(`${p.id}: smtp 설정 없음`);
   return sendSmtp(r.account.address, r.secret, p.smtp, draft);
+}
+
+/** 메일 삭제 — 휴지통으로 이동 (복구 가능). */
+export async function deleteMessage(
+  r: ResolvedAccount,
+  id: string,
+): Promise<{ ok: true }> {
+  const p = providerOf(r);
+  if (p.auth === 'oauth') {
+    const token = await accessTokenFromRefresh(r.secret);
+    await trashGmail(token, id);
+    return { ok: true };
+  }
+  if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
+  await trashImap(r.account.address, r.secret, p.imap, id);
+  return { ok: true };
 }

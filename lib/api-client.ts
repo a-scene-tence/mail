@@ -74,4 +74,11 @@ export const mailApi: MailGateway = {
       body: JSON.stringify({ accountId, draft }),
     });
   },
+
+  async deleteMessage(accountId: string, messageId: string) {
+    return request<{ ok: true }>(`/api/messages/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ accountId, id: messageId }),
+    });
+  },
 };

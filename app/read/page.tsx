@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { mailApi } from '@/lib/api-client';
 import { Label } from '@/components/ui/Label';
 
@@ -16,12 +16,36 @@ export default function ReadPage() {
     setParams({ accountId: q.get('accountId') ?? '', id: q.get('id') ?? '' });
   }, []);
 
+  const queryClient = useQueryClient();
+  const [deleting, setDeleting] = useState(false);
+  const [delErr, setDelErr] = useState(false);
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['message', params?.accountId, params?.id],
     queryFn: () => mailApi.getMessage(params!.accountId, params!.id),
     enabled: !!params?.accountId && !!params?.id,
     retry: false,
   });
+
+  async function onDelete() {
+    if (!params || deleting) return;
+    if (!window.confirm('이 메일을 휴지통으로 이동할까요?')) return;
+    setDeleting(true);
+    setDelErr(false);
+    try {
+      await mailApi.deleteMessage(params.accountId, params.id);
+      await queryClient.invalidateQueries({ queryKey: ['messages'] });
+      window.location.href = '/mail/';
+    } catch {
+      setDelErr(true);
+      setDeleting(false);
+    }
+  }
+
+  const compose = (mode: 'reply' | 'forward') =>
+    `/compose/?mode=${mode}&accountId=${encodeURIComponent(
+      params?.accountId ?? '',
+    )}&srcId=${encodeURIComponent(params?.id ?? '')}`;
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
@@ -42,6 +66,28 @@ export default function ReadPage() {
           <p className="mt-2 text-sm text-gray">
             {new Date(data.date).toLocaleString('ko-KR')}
           </p>
+
+          <div className="mt-6 flex items-center gap-6 border-t border-hairline pt-4">
+            <Link href={compose('reply')} className="eyebrow hover:text-ink">
+              회신
+            </Link>
+            <Link href={compose('forward')} className="eyebrow hover:text-ink">
+              전달
+            </Link>
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deleting}
+              className="eyebrow hover:text-ink disabled:opacity-50"
+            >
+              {deleting ? '삭제 중…' : '삭제'}
+            </button>
+          </div>
+          {delErr && (
+            <p className="mt-3 text-sm text-ink">
+              삭제에 실패했습니다. 다시 시도해 주세요.
+            </p>
+          )}
 
           <div className="mt-8 border-t border-hairline pt-8">
             {data.bodyHtml ? (

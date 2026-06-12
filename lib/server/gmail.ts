@@ -15,6 +15,7 @@ interface GmailPart {
 }
 interface GmailMessage {
   id: string;
+  threadId?: string;
   snippet?: string;
   labelIds?: string[];
   internalDate?: string;
@@ -87,6 +88,8 @@ function toMailMessage(
     const body = extractBody(m.payload);
     base.bodyText = body.text;
     base.bodyHtml = body.html;
+    base.messageId = header(headers, 'Message-ID') || undefined;
+    base.threadId = m.threadId;
   }
   return base;
 }
@@ -138,10 +141,17 @@ function encodeSubject(s: string): string {
 
 function buildMime(from: string, draft: MailDraft): string {
   const bodyB64 = Buffer.from(draft.body, 'utf8').toString('base64');
-  return [
+  const headers = [
     `From: ${from}`,
     `To: ${draft.to.join(', ')}`,
     `Subject: ${encodeSubject(draft.subject)}`,
+  ];
+  // 회신 스레드 연결 헤더 (있을 때만).
+  if (draft.inReplyTo) headers.push(`In-Reply-To: ${draft.inReplyTo}`);
+  if (draft.references?.length)
+    headers.push(`References: ${draft.references.join(' ')}`);
+  return [
+    ...headers,
     'MIME-Version: 1.0',
     'Content-Type: text/plain; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
@@ -157,15 +167,30 @@ export async function sendGmail(
   draft: MailDraft,
 ): Promise<{ id: string }> {
   const raw = Buffer.from(buildMime(from, draft), 'utf8').toString('base64url');
+  const payload: { raw: string; threadId?: string } = { raw };
+  // 회신을 같은 스레드로 묶기 (Gmail).
+  if (draft.threadId) payload.threadId = draft.threadId;
   const res = await fetch(`${API}/messages/send`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ raw }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`Gmail send 실패: ${res.status}`);
   const data = (await res.json()) as { id: string };
   return { id: data.id };
+}
+
+/** 메일을 휴지통으로 이동 (gmail.modify 스코프 필요). */
+export async function trashGmail(
+  accessToken: string,
+  messageId: string,
+): Promise<void> {
+  const res = await fetch(`${API}/messages/${messageId}/trash`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Gmail trash 실패: ${res.status}`);
 }
