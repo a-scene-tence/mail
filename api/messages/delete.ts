@@ -14,9 +14,10 @@ export default async function handler(
     return;
   }
   const sessionId = readSessionId(req.headers.cookie);
-  const { accountId, id } = (req.body ?? {}) as {
+  const { accountId, id, mailbox } = (req.body ?? {}) as {
     accountId?: string;
     id?: string;
+    mailbox?: 'inbox' | 'sent';
   };
   if (!sessionId || !accountId || !id) {
     res.status(400).json({ error: '입력 누락 또는 미인증' });
@@ -29,7 +30,7 @@ export default async function handler(
       res.status(404).json({ error: '계정을 찾을 수 없음' });
       return;
     }
-    await deleteMessage(resolved, id);
+    await deleteMessage(resolved, id, mailbox === 'sent' ? 'sent' : 'inbox');
     res.status(200).json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });

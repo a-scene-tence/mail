@@ -94,15 +94,16 @@ function toMailMessage(
   return base;
 }
 
-/** INBOX 메시지 목록 (메타데이터). */
+/** 메일함 목록 (메타데이터). 기본 INBOX, label='SENT'면 보낸편지함. */
 export async function listGmail(
   accountId: string,
   accessToken: string,
   limit = 20,
+  label: 'INBOX' | 'SENT' = 'INBOX',
 ): Promise<MailMessage[]> {
   const list = await gget<{ messages?: { id: string }[] }>(
     accessToken,
-    `/messages?maxResults=${limit}&labelIds=INBOX`,
+    `/messages?maxResults=${limit}&labelIds=${label}`,
   );
   const ids = list.messages ?? [];
   const metaHeaders = '&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject';
@@ -150,6 +151,11 @@ function buildMime(from: string, draft: MailDraft): string {
   if (draft.inReplyTo) headers.push(`In-Reply-To: ${draft.inReplyTo}`);
   if (draft.references?.length)
     headers.push(`References: ${draft.references.join(' ')}`);
+  // 수신확인 요청 (MDN). 받는 클라이언트가 지원할 때만 알림이 돌아온다.
+  if (draft.readReceipt) {
+    headers.push(`Disposition-Notification-To: ${from}`);
+    headers.push(`Return-Receipt-To: ${from}`);
+  }
   return [
     ...headers,
     'MIME-Version: 1.0',

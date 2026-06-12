@@ -21,8 +21,10 @@ export interface MailProvider {
   imapHelp?: {
     /** 설정 화면 링크 */
     settingsUrl?: string;
-    /** 단계별 안내 */
+    /** 단계별 안내 (IMAP/SMTP 사용 켜기) */
     steps: string[];
+    /** 2단계 인증 + 앱 비밀번호 발급 단계 (필요한 제공자만) */
+    twoFactor?: { steps: string[] };
     /** 추가 주의사항 (예: Outlook 기본 인증 차단) */
     note?: string;
   };
@@ -66,19 +68,34 @@ export interface MailDraft {
   references?: string[];
   /** Gmail 회신을 같은 스레드로 묶을 때 */
   threadId?: string;
+  /** 수신확인 요청 (MDN Disposition-Notification-To 헤더 발송) */
+  readReceipt?: boolean;
 }
+
+/** 조회할 메일함. */
+export type Mailbox = 'inbox' | 'sent';
 
 export interface ListOptions {
   /** 통합 받은편지함이면 생략, 계정별이면 지정 */
   accountId?: string;
   limit?: number;
   cursor?: string;
+  /** 받은편지함(기본) 또는 보낸편지함 */
+  mailbox?: Mailbox;
 }
 
 /** 제공자 게이트웨이 공통 인터페이스 (구현은 서버 또는 api-client 경유). */
 export interface MailGateway {
   listMessages(opts: ListOptions): Promise<MailMessage[]>;
-  getMessage(accountId: string, messageId: string): Promise<MailMessage>;
+  getMessage(
+    accountId: string,
+    messageId: string,
+    mailbox?: Mailbox,
+  ): Promise<MailMessage>;
   sendMessage(accountId: string, draft: MailDraft): Promise<{ id: string }>;
-  deleteMessage(accountId: string, messageId: string): Promise<{ ok: true }>;
+  deleteMessage(
+    accountId: string,
+    messageId: string,
+    mailbox?: Mailbox,
+  ): Promise<{ ok: true }>;
 }

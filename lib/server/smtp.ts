@@ -22,6 +22,13 @@ export async function sendSmtp(
     secure: cfg.secure,
     auth: { user: address, pass: password },
   });
+  // 수신확인 요청 (MDN) — 발신자 주소로 알림 요청 헤더 추가.
+  const headers = draft.readReceipt
+    ? {
+        'Disposition-Notification-To': address,
+        'Return-Receipt-To': address,
+      }
+    : undefined;
   const info = await transporter.sendMail({
     from: address,
     to: draft.to,
@@ -30,6 +37,7 @@ export async function sendSmtp(
     // 회신 스레드 연결 헤더 (있을 때만).
     inReplyTo: draft.inReplyTo,
     references: draft.references,
+    headers,
   });
   return { id: info.messageId };
 }

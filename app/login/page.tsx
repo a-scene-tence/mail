@@ -138,8 +138,21 @@ function AuthForm({
                   ))}
                 </ol>
               )}
+              {help.twoFactor && (
+                <div className="mt-5">
+                  <p className="eyebrow mb-3">2단계 인증 · 앱 비밀번호 발급</p>
+                  <ol className="space-y-2 text-sm text-gray">
+                    {help.twoFactor.steps.map((s, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="shrink-0 text-ink">{i + 1}.</span>
+                        <span>{s}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
               {help.note && (
-                <p className="mt-3 text-xs text-gray">{help.note}</p>
+                <p className="mt-4 text-xs text-gray">{help.note}</p>
               )}
               {help.settingsUrl && (
                 <a

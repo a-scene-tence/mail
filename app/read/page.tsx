@@ -4,16 +4,23 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { mailApi } from '@/lib/api-client';
+import type { Mailbox } from '@/lib/providers/types';
 import { Label } from '@/components/ui/Label';
 
 export default function ReadPage() {
   // 정적 export 호환: useSearchParams(Suspense 필요) 대신 location을 직접 읽는다.
-  const [params, setParams] = useState<{ accountId: string; id: string } | null>(
-    null,
-  );
+  const [params, setParams] = useState<{
+    accountId: string;
+    id: string;
+    mailbox: Mailbox;
+  } | null>(null);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    setParams({ accountId: q.get('accountId') ?? '', id: q.get('id') ?? '' });
+    setParams({
+      accountId: q.get('accountId') ?? '',
+      id: q.get('id') ?? '',
+      mailbox: q.get('mailbox') === 'sent' ? 'sent' : 'inbox',
+    });
   }, []);
 
   const queryClient = useQueryClient();
@@ -21,8 +28,9 @@ export default function ReadPage() {
   const [delErr, setDelErr] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['message', params?.accountId, params?.id],
-    queryFn: () => mailApi.getMessage(params!.accountId, params!.id),
+    queryKey: ['message', params?.accountId, params?.id, params?.mailbox],
+    queryFn: () =>
+      mailApi.getMessage(params!.accountId, params!.id, params!.mailbox),
     enabled: !!params?.accountId && !!params?.id,
     retry: false,
   });
@@ -33,7 +41,7 @@ export default function ReadPage() {
     setDeleting(true);
     setDelErr(false);
     try {
-      await mailApi.deleteMessage(params.accountId, params.id);
+      await mailApi.deleteMessage(params.accountId, params.id, params.mailbox);
       await queryClient.invalidateQueries({ queryKey: ['messages'] });
       window.location.href = '/mail/';
     } catch {
@@ -42,15 +50,18 @@ export default function ReadPage() {
     }
   }
 
+  const isSent = params?.mailbox === 'sent';
   const compose = (mode: 'reply' | 'forward') =>
     `/compose/?mode=${mode}&accountId=${encodeURIComponent(
       params?.accountId ?? '',
-    )}&srcId=${encodeURIComponent(params?.id ?? '')}`;
+    )}&srcId=${encodeURIComponent(params?.id ?? '')}&mailbox=${
+      params?.mailbox ?? 'inbox'
+    }`;
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
       <Link href="/mail" className="eyebrow">
-        ← 받은편지함
+        ← {isSent ? '보낸편지함' : '받은편지함'}
       </Link>
 
       {isLoading || !params ? (
@@ -59,7 +70,11 @@ export default function ReadPage() {
         <p className="mt-12 text-gray">메일을 불러오지 못했습니다.</p>
       ) : (
         <article className="mt-8">
-          <Label>{data.from}</Label>
+          <Label>
+            {isSent
+              ? `받는 사람: ${data.to.length ? data.to.join(', ') : '(없음)'}`
+              : data.from}
+          </Label>
           <h1 className="mt-3 text-2xl font-semibold tracking-tight">
             {data.subject || '(제목 없음)'}
           </h1>

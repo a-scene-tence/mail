@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { MailMessage } from '../../lib/providers/types.js';
 import { readSessionId } from '../../lib/server/session.js';
 import { resolveAccounts } from '../../lib/server/accounts.js';
-import { listInbox } from '../../lib/server/mailbox.js';
+import { listMailbox } from '../../lib/server/mailbox.js';
 
 // GET /api/messages/list?accountId=&limit=
 // 세션의 (전체 또는 특정) 계정에서 INBOX 목록을 모아 최신순 반환.
@@ -24,12 +24,13 @@ export default async function handler(
   const accountId =
     typeof req.query.accountId === 'string' ? req.query.accountId : undefined;
   const limit = Math.min(Number(req.query.limit) || 20, 50);
+  const mailbox = req.query.mailbox === 'sent' ? 'sent' : 'inbox';
 
   try {
     const accounts = await resolveAccounts(sessionId, accountId);
     const perAccount = await Promise.all(
       accounts.map((r) =>
-        listInbox(r, limit).catch(() => [] as MailMessage[]),
+        listMailbox(r, limit, mailbox).catch(() => [] as MailMessage[]),
       ),
     );
     const messages: MailMessage[] = perAccount

@@ -1,5 +1,6 @@
 import type {
   ListOptions,
+  Mailbox,
   MailAccount,
   MailDraft,
   MailGateway,
@@ -80,6 +81,7 @@ export const mailApi: MailGateway = {
     if (opts.accountId) params.set('accountId', opts.accountId);
     if (opts.limit) params.set('limit', String(opts.limit));
     if (opts.cursor) params.set('cursor', opts.cursor);
+    if (opts.mailbox) params.set('mailbox', opts.mailbox);
     const qs = params.toString();
     const data = await request<{ messages: MailMessage[] }>(
       `/api/messages/list${qs ? `?${qs}` : ''}`,
@@ -87,11 +89,12 @@ export const mailApi: MailGateway = {
     return data.messages;
   },
 
-  async getMessage(accountId: string, messageId: string) {
+  async getMessage(accountId: string, messageId: string, mailbox?: Mailbox) {
+    const box = mailbox ? `&mailbox=${mailbox}` : '';
     return request<MailMessage>(
       `/api/messages/get?accountId=${encodeURIComponent(
         accountId,
-      )}&id=${encodeURIComponent(messageId)}`,
+      )}&id=${encodeURIComponent(messageId)}${box}`,
     );
   },
 
@@ -102,10 +105,10 @@ export const mailApi: MailGateway = {
     });
   },
 
-  async deleteMessage(accountId: string, messageId: string) {
+  async deleteMessage(accountId: string, messageId: string, mailbox?: Mailbox) {
     return request<{ ok: true }>(`/api/messages/delete`, {
       method: 'POST',
-      body: JSON.stringify({ accountId, id: messageId }),
+      body: JSON.stringify({ accountId, id: messageId, mailbox }),
     });
   },
 };

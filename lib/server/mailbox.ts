@@ -1,4 +1,4 @@
-import type { MailDraft, MailMessage } from '../providers/types.js';
+import type { MailDraft, MailMessage, Mailbox } from '../providers/types.js';
 import { getProvider } from '../providers/registry.js';
 import type { ResolvedAccount } from './accounts.js';
 import { accessTokenFromRefresh } from './google.js';
@@ -15,24 +15,38 @@ function providerOf(r: ResolvedAccount) {
   return p;
 }
 
-/** INBOX 목록. */
-export async function listInbox(
+/** 메일함 목록 (기본 INBOX, mailbox='sent'면 보낸편지함). */
+export async function listMailbox(
   r: ResolvedAccount,
   limit: number,
+  mailbox: Mailbox = 'inbox',
 ): Promise<MailMessage[]> {
   const p = providerOf(r);
   if (p.auth === 'oauth') {
     const token = await accessTokenFromRefresh(r.secret);
-    return listGmail(r.account.id, token, limit);
+    return listGmail(
+      r.account.id,
+      token,
+      limit,
+      mailbox === 'sent' ? 'SENT' : 'INBOX',
+    );
   }
   if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
-  return listImap(r.account.id, r.account.address, r.secret, p.imap, limit);
+  return listImap(
+    r.account.id,
+    r.account.address,
+    r.secret,
+    p.imap,
+    limit,
+    mailbox,
+  );
 }
 
 /** 단일 메시지 (본문 포함). */
 export async function getMessage(
   r: ResolvedAccount,
   id: string,
+  mailbox: Mailbox = 'inbox',
 ): Promise<MailMessage> {
   const p = providerOf(r);
   if (p.auth === 'oauth') {
@@ -40,7 +54,7 @@ export async function getMessage(
     return getGmail(r.account.id, token, id);
   }
   if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
-  return getImap(r.account.id, r.account.address, r.secret, p.imap, id);
+  return getImap(r.account.id, r.account.address, r.secret, p.imap, id, mailbox);
 }
 
 /** 메일 발송. */
@@ -61,6 +75,7 @@ export async function sendMail(
 export async function deleteMessage(
   r: ResolvedAccount,
   id: string,
+  mailbox: Mailbox = 'inbox',
 ): Promise<{ ok: true }> {
   const p = providerOf(r);
   if (p.auth === 'oauth') {
@@ -69,6 +84,6 @@ export async function deleteMessage(
     return { ok: true };
   }
   if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
-  await trashImap(r.account.address, r.secret, p.imap, id);
+  await trashImap(r.account.address, r.secret, p.imap, id, mailbox);
   return { ok: true };
 }

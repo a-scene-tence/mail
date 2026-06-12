@@ -17,6 +17,7 @@ export default async function handler(
   const accountId =
     typeof req.query.accountId === 'string' ? req.query.accountId : '';
   const id = typeof req.query.id === 'string' ? req.query.id : '';
+  const mailbox = req.query.mailbox === 'sent' ? 'sent' : 'inbox';
   if (!sessionId || !accountId || !id) {
     res.status(400).json({ error: 'accountId/id 필요 또는 미인증' });
     return;
@@ -28,7 +29,7 @@ export default async function handler(
       res.status(404).json({ error: '계정을 찾을 수 없음' });
       return;
     }
-    const message = await getMessage(resolved, id);
+    const message = await getMessage(resolved, id, mailbox);
     res.status(200).json(message);
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });

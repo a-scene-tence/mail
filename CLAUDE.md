@@ -93,3 +93,4 @@ npm run lint       # next lint
 - 2026-06-12: M4.1 — 받은편지함 선택 모드(다중 선택 일괄 삭제, 단일 선택 회신/전달). 프론트만 변경(`app/mail/page.tsx`·`components/MailListItem.tsx`), 기존 `mailApi.deleteMessage`·`/compose` 프리필 재사용.
 - 2026-06-12: IMAP 로그인 안내/진단 개선 — 제공자 레지스트리에 `imapHelp`(설정 단계·앱 비밀번호·해외 로그인 차단 주의) 추가해 로그인 화면에 노출. `/api/auth/imap/login`이 실패 `reason`(auth/connect)+`detail`(서버 응답) 반환, `ImapLoginError`로 프론트에 구체 사유 표시.
 - 2026-06-12: 네이버 IMAP 안내 정정 — IMAP/POP3 설정은 **PC 웹 전용**(모바일 환경설정엔 없음), **2025-06-24부터 2단계 인증+앱 비밀번호 필수**(계정 비밀번호 불가). 레지스트리 `imapHelp` 문구 갱신.
+- 2026-06-12: M5 — 보낸편지함 + 수신확인 요청 + 2단계 인증 단계 안내. `Mailbox`('inbox'|'sent') 타입을 list/get/delete 스택 전체에 관통(`mailbox.ts`·`imap.ts` `resolveMailbox` specialUse `\\Sent`, Gmail label `SENT`). 작성 화면 '수신확인 요청' 체크박스→`MailDraft.readReceipt`→MDN 헤더(`Disposition-Notification-To`/`Return-Receipt-To`, gmail.ts+smtp.ts). `imapHelp.twoFactor.steps`로 네이버/다음 2단계 인증·앱 비밀번호 발급 단계 노출. 받은/보낸 탭(`app/mail/page.tsx`), 보낸함은 수신자(to) 표시.

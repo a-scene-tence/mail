@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { MailMessage } from '@/lib/providers/types';
+import type { MailMessage, Mailbox } from '@/lib/providers/types';
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -9,14 +9,29 @@ function formatDate(iso: string): string {
 
 interface Props {
   message: MailMessage;
+  /** 받은편지함이면 발신자, 보낸편지함이면 수신자를 표시 */
+  mailbox?: Mailbox;
   /** 선택 모드면 행 탭이 이동 대신 선택 토글로 동작 */
   selectMode?: boolean;
   selected?: boolean;
   onToggle?: () => void;
 }
 
-/** 메일 목록 한 행 — 발신자/제목/스니펫/날짜. 선택 모드면 체크박스. */
-export function MailListItem({ message, selectMode, selected, onToggle }: Props) {
+/** 메일 목록 한 행 — 상대방/제목/스니펫/날짜. 선택 모드면 체크박스. */
+export function MailListItem({
+  message,
+  mailbox = 'inbox',
+  selectMode,
+  selected,
+  onToggle,
+}: Props) {
+  // 보낸편지함은 수신자(받는 사람)를, 받은편지함은 발신자를 보여준다.
+  const counterpart =
+    mailbox === 'sent'
+      ? message.to.length
+        ? message.to.join(', ')
+        : '(받는 사람 없음)'
+      : message.from;
   const meta = (
     <div className="min-w-0 flex-1">
       <div className="flex items-baseline justify-between gap-4">
@@ -25,7 +40,7 @@ export function MailListItem({ message, selectMode, selected, onToggle }: Props)
             message.unread ? 'text-ink' : 'text-gray'
           }`}
         >
-          {message.from}
+          {counterpart}
         </span>
         <span className="shrink-0 text-xs text-gray">
           {formatDate(message.date)}
@@ -63,7 +78,7 @@ export function MailListItem({ message, selectMode, selected, onToggle }: Props)
 
   const href = `/read/?accountId=${encodeURIComponent(
     message.accountId,
-  )}&id=${encodeURIComponent(message.id)}`;
+  )}&id=${encodeURIComponent(message.id)}&mailbox=${mailbox}`;
   return (
     <Link
       href={href}

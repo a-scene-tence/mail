@@ -1,7 +1,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import type { AddressObject } from 'mailparser';
-import type { MailMessage } from '../providers/types.js';
+import type { MailMessage, Mailbox } from '../providers/types.js';
 
 // IMAP 수신 게이트웨이 — imapflow + mailparser. 서버 전용.
 // Vercel 서버리스는 무상태라 요청마다 새 연결을 열고 finally에서 반드시 닫는다.
@@ -33,18 +33,45 @@ function toIso(d: Date | string | undefined): string {
   return d instanceof Date ? d.toISOString() : new Date(d).toISOString();
 }
 
-/** INBOX 메시지 목록 (메타데이터). */
+// 보낸편지함 폴더 이름 후보 (specialUse 미지원 서버 대비).
+const SENT_FALLBACKS = [
+  'Sent',
+  'Sent Messages',
+  'Sent Items',
+  '[Gmail]/Sent Mail',
+  '보낸편지함',
+  '보낸 메일함',
+  '보낸메일함',
+];
+
+/** mailbox 종류 → 실제 폴더 경로. inbox=INBOX, sent=specialUse '\\Sent' 우선. */
+async function resolveMailbox(
+  client: ImapFlow,
+  mailbox: Mailbox,
+): Promise<string | null> {
+  if (mailbox === 'inbox') return 'INBOX';
+  const boxes = await client.list();
+  const special = boxes.find((b) => b.specialUse === '\\Sent');
+  if (special) return special.path;
+  const named = boxes.find((b) => SENT_FALLBACKS.includes(b.path));
+  return named ? named.path : null;
+}
+
+/** 메일함 목록 (메타데이터). 기본 INBOX, mailbox='sent'면 보낸편지함. */
 export async function listImap(
   accountId: string,
   address: string,
   password: string,
   cfg: ImapCfg,
   limit = 20,
+  mailbox: Mailbox = 'inbox',
 ): Promise<MailMessage[]> {
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
-    const lock = await client.getMailboxLock('INBOX');
+    const path = await resolveMailbox(client, mailbox);
+    if (!path) return [];
+    const lock = await client.getMailboxLock(path);
     try {
       const total =
         typeof client.mailbox === 'object' && client.mailbox
@@ -88,11 +115,14 @@ export async function getImap(
   password: string,
   cfg: ImapCfg,
   id: string,
+  mailbox: Mailbox = 'inbox',
 ): Promise<MailMessage> {
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
-    const lock = await client.getMailboxLock('INBOX');
+    const path = await resolveMailbox(client, mailbox);
+    if (!path) throw new Error('메일함을 찾을 수 없음');
+    const lock = await client.getMailboxLock(path);
     try {
       let found: MailMessage | null = null;
       for await (const msg of client.fetch(
@@ -145,12 +175,15 @@ export async function trashImap(
   password: string,
   cfg: ImapCfg,
   id: string,
+  mailbox: Mailbox = 'inbox',
 ): Promise<void> {
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
     const trashPath = await findTrashPath(client);
-    const lock = await client.getMailboxLock('INBOX');
+    const srcPath = await resolveMailbox(client, mailbox);
+    if (!srcPath) throw new Error('원본 메일함을 찾을 수 없음');
+    const lock = await client.getMailboxLock(srcPath);
     try {
       const uid = String(Number(id));
       if (trashPath) {

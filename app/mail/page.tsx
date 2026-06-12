@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listAccounts, mailApi } from '@/lib/api-client';
-import type { MailMessage } from '@/lib/providers/types';
+import type { MailMessage, Mailbox } from '@/lib/providers/types';
 import { MailListItem } from '@/components/MailListItem';
 import { Label } from '@/components/ui/Label';
 
@@ -19,9 +19,10 @@ export default function MailPage() {
     queryFn: listAccounts,
     retry: false,
   });
+  const [mailbox, setMailbox] = useState<Mailbox>('inbox');
   const messagesQ = useQuery({
-    queryKey: ['messages', 'inbox'],
-    queryFn: () => mailApi.listMessages({ limit: 30 }),
+    queryKey: ['messages', mailbox],
+    queryFn: () => mailApi.listMessages({ limit: 30, mailbox }),
     retry: false,
   });
 
@@ -29,6 +30,14 @@ export default function MailPage() {
   const [selected, setSelected] = useState<Map<string, Ref>>(new Map());
   const [deleting, setDeleting] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
+
+  function switchBox(b: Mailbox) {
+    if (b === mailbox) return;
+    setMailbox(b);
+    setSelectMode(false);
+    setSelected(new Map());
+    setActionErr(null);
+  }
 
   const messages = messagesQ.data ?? [];
   const hasAccount = (accountsQ.data ?? []).length > 0;
@@ -58,7 +67,7 @@ export default function MailPage() {
     setActionErr(null);
     const refs = [...selected.values()];
     const results = await Promise.allSettled(
-      refs.map((r) => mailApi.deleteMessage(r.accountId, r.id)),
+      refs.map((r) => mailApi.deleteMessage(r.accountId, r.id, mailbox)),
     );
     await queryClient.invalidateQueries({ queryKey: ['messages'] });
     const failed = results.filter((r) => r.status === 'rejected').length;
@@ -82,7 +91,7 @@ export default function MailPage() {
     const r = [...selected.values()][0];
     return `/compose/?mode=${mode}&accountId=${encodeURIComponent(
       r.accountId,
-    )}&srcId=${encodeURIComponent(r.id)}`;
+    )}&srcId=${encodeURIComponent(r.id)}&mailbox=${mailbox}`;
   }
 
   const count = selected.size;
@@ -93,10 +102,12 @@ export default function MailPage() {
         ← 뒤로
       </Link>
 
-      <header className="mb-10 mt-6 flex items-end justify-between">
+      <header className="mb-6 mt-6 flex items-end justify-between">
         <div>
-          <Label>Inbox</Label>
-          <h1 className="display mt-3">받은편지함</h1>
+          <Label>{mailbox === 'sent' ? 'Sent' : 'Inbox'}</Label>
+          <h1 className="display mt-3">
+            {mailbox === 'sent' ? '보낸편지함' : '받은편지함'}
+          </h1>
         </div>
         <div className="flex items-center gap-5">
           {messages.length > 0 &&
@@ -120,6 +131,23 @@ export default function MailPage() {
           )}
         </div>
       </header>
+
+      <nav className="mb-8 flex gap-6 border-b border-hairline">
+        {(['inbox', 'sent'] as const).map((b) => (
+          <button
+            key={b}
+            type="button"
+            onClick={() => switchBox(b)}
+            className={`-mb-px border-b-2 pb-3 text-sm tracking-tight transition-colors ${
+              mailbox === b
+                ? 'border-ink text-ink'
+                : 'border-transparent text-gray hover:text-ink'
+            }`}
+          >
+            {b === 'inbox' ? '받은편지함' : '보낸편지함'}
+          </button>
+        ))}
+      </nav>
 
       {selectMode && (
         <div className="mb-2 flex items-center justify-between border-t border-ink py-3">
@@ -169,6 +197,7 @@ export default function MailPage() {
             <MailListItem
               key={keyOf(m)}
               message={m}
+              mailbox={mailbox}
               selectMode={selectMode}
               selected={selected.has(keyOf(m))}
               onToggle={() => toggle(m)}
@@ -177,7 +206,10 @@ export default function MailPage() {
           <div className="border-t border-hairline" />
         </section>
       ) : hasAccount ? (
-        <Notice text="받은 메일이 없습니다." cta={false} />
+        <Notice
+          text={mailbox === 'sent' ? '보낸 메일이 없습니다.' : '받은 메일이 없습니다.'}
+          cta={false}
+        />
       ) : (
         <Notice text="아직 연결된 계정이 없습니다." cta />
       )}

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { listAccounts, mailApi } from '@/lib/api-client';
-import type { MailMessage } from '@/lib/providers/types';
+import type { MailMessage, Mailbox } from '@/lib/providers/types';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import { TextField } from '@/components/ui/TextField';
@@ -44,6 +44,7 @@ export default function ComposePage() {
     mode: 'reply' | 'forward' | null;
     accountId: string;
     srcId: string;
+    mailbox: Mailbox;
   } | null>(null);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -52,6 +53,7 @@ export default function ComposePage() {
       mode: m === 'reply' || m === 'forward' ? m : null,
       accountId: q.get('accountId') ?? '',
       srcId: q.get('srcId') ?? '',
+      mailbox: q.get('mailbox') === 'sent' ? 'sent' : 'inbox',
     });
   }, []);
 
@@ -64,8 +66,8 @@ export default function ComposePage() {
 
   // 회신/전달 원본 로드 (srcId 있을 때만).
   const sourceQ = useQuery({
-    queryKey: ['message', ctx?.accountId, ctx?.srcId],
-    queryFn: () => mailApi.getMessage(ctx!.accountId, ctx!.srcId),
+    queryKey: ['message', ctx?.accountId, ctx?.srcId, ctx?.mailbox],
+    queryFn: () => mailApi.getMessage(ctx!.accountId, ctx!.srcId, ctx!.mailbox),
     enabled: !!ctx?.srcId && !!ctx?.accountId,
     retry: false,
   });
@@ -75,6 +77,7 @@ export default function ComposePage() {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
+  const [readReceipt, setReadReceipt] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
   // 회신 스레드 연결 정보 (전달은 새 대화라 비움).
   const [thread, setThread] = useState<{
@@ -124,6 +127,7 @@ export default function ComposePage() {
         inReplyTo: thread.inReplyTo,
         references: thread.references,
         threadId: thread.threadId,
+        readReceipt,
       });
       window.location.href = '/mail/';
     } catch {
@@ -199,6 +203,24 @@ export default function ComposePage() {
             value={body}
             onChange={(e) => setBody(e.target.value)}
           />
+
+          <div>
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={readReceipt}
+                onChange={(e) => setReadReceipt(e.target.checked)}
+                className="mt-1 h-4 w-4 shrink-0 accent-ink"
+              />
+              <span className="text-sm text-ink">
+                수신확인 요청
+                <span className="mt-0.5 block text-xs text-gray">
+                  받는 사람의 메일 앱이 지원·동의할 때만 읽음 알림이 돌아옵니다.
+                  자동 읽음 표시는 보장되지 않습니다.
+                </span>
+              </span>
+            </label>
+          </div>
 
           {errMsg && (
             <p className="border-t border-ink pt-3 text-sm text-ink">{errMsg}</p>
