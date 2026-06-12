@@ -24,7 +24,10 @@ export default async function handler(
   const accountId =
     typeof req.query.accountId === 'string' ? req.query.accountId : undefined;
   const limit = Math.min(Number(req.query.limit) || 20, 50);
-  const mailbox = req.query.mailbox === 'sent' ? 'sent' : 'inbox';
+  const mailbox =
+    typeof req.query.mailbox === 'string' && req.query.mailbox
+      ? req.query.mailbox
+      : 'inbox';
   const query = typeof req.query.q === 'string' ? req.query.q : undefined;
 
   try {

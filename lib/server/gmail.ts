@@ -1,6 +1,7 @@
 import type {
   MailAttachment,
   MailDraft,
+  MailFolder,
   MailMessage,
 } from '../providers/types.js';
 
@@ -121,16 +122,19 @@ function toMailMessage(
   return base;
 }
 
-/** 메일함 목록 (메타데이터). 기본 INBOX, label='SENT'면 보낸편지함. */
+/** 메일함 목록 (메타데이터). label은 임의 라벨 ID(기본 INBOX). */
 export async function listGmail(
   accountId: string,
   accessToken: string,
   limit = 20,
-  label: 'INBOX' | 'SENT' = 'INBOX',
+  label = 'INBOX',
 ): Promise<MailMessage[]> {
+  // includeSpamTrash=true: 휴지통 라벨 조회 허용(INBOX 등 일반 라벨 결과엔 영향 없음).
   const list = await gget<{ messages?: { id: string }[] }>(
     accessToken,
-    `/messages?maxResults=${limit}&labelIds=${label}`,
+    `/messages?maxResults=${limit}&labelIds=${encodeURIComponent(
+      label,
+    )}&includeSpamTrash=true`,
   );
   const ids = list.messages ?? [];
   const metaHeaders = '&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject';
@@ -146,6 +150,54 @@ export async function listGmail(
     ),
   );
   return messages.filter((m): m is MailMessage => m !== null);
+}
+
+// Gmail 시스템 라벨의 한글 표시명.
+const GMAIL_LABEL_NAMES: Record<string, string> = {
+  INBOX: '받은편지함',
+  SENT: '보낸편지함',
+  DRAFT: '임시보관함',
+  TRASH: '휴지통',
+  STARRED: '별표',
+  IMPORTANT: '중요',
+  CATEGORY_PERSONAL: '기본',
+  CATEGORY_SOCIAL: '소셜',
+  CATEGORY_PROMOTIONS: '프로모션',
+  CATEGORY_UPDATES: '업데이트',
+  CATEGORY_FORUMS: '포럼',
+};
+
+interface GmailLabel {
+  id: string;
+  name: string;
+  type?: string;
+}
+
+/** 계정의 라벨(폴더) 목록 (스팸·읽음상태 라벨 제외). */
+export async function listGmailLabels(
+  accessToken: string,
+): Promise<MailFolder[]> {
+  const data = await gget<{ labels?: GmailLabel[] }>(accessToken, '/labels');
+  const labels = data.labels ?? [];
+  // 폴더가 아닌 상태 라벨(UNREAD)과 스팸은 제외.
+  const EXCLUDE = new Set(['SPAM', 'UNREAD']);
+  const kindOf = (id: string): MailFolder['kind'] =>
+    id === 'INBOX'
+      ? 'inbox'
+      : id === 'SENT'
+        ? 'sent'
+        : id === 'TRASH'
+          ? 'trash'
+          : id === 'DRAFT'
+            ? 'drafts'
+            : 'folder';
+  return labels
+    .filter((l) => !EXCLUDE.has(l.id))
+    .map((l) => ({
+      id: l.id,
+      name: GMAIL_LABEL_NAMES[l.id] ?? l.name,
+      kind: kindOf(l.id),
+    }));
 }
 
 /** 단일 메시지 (본문 포함). */

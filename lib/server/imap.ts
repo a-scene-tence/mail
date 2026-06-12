@@ -1,7 +1,12 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import type { AddressObject } from 'mailparser';
-import type { MailAttachment, MailMessage, Mailbox } from '../providers/types.js';
+import type {
+  MailAttachment,
+  MailFolder,
+  MailMessage,
+  Mailbox,
+} from '../providers/types.js';
 
 // IMAP 수신 게이트웨이 — imapflow + mailparser. 서버 전용.
 // Vercel 서버리스는 무상태라 요청마다 새 연결을 열고 finally에서 반드시 닫는다.
@@ -44,17 +49,65 @@ const SENT_FALLBACKS = [
   '보낸메일함',
 ];
 
-/** mailbox 종류 → 실제 폴더 경로. inbox=INBOX, sent=specialUse '\\Sent' 우선. */
+// 스팸/정크 폴더 폴백명 (specialUse '\\Junk' 미지원 서버 대비).
+const SPAM_FALLBACKS = [
+  'Spam',
+  'Junk',
+  'Junk E-mail',
+  'Bulk Mail',
+  '스팸메일함',
+  '스팸',
+];
+
+/**
+ * mailbox 식별자 → 실제 폴더 경로.
+ * - 'inbox' → INBOX
+ * - 'sent'  → specialUse '\\Sent' 우선, 없으면 폴백명
+ * - 그 외   → mailbox 자체를 폴더 path로 사용
+ */
 async function resolveMailbox(
   client: ImapFlow,
   mailbox: Mailbox,
 ): Promise<string | null> {
   if (mailbox === 'inbox') return 'INBOX';
-  const boxes = await client.list();
-  const special = boxes.find((b) => b.specialUse === '\\Sent');
-  if (special) return special.path;
-  const named = boxes.find((b) => SENT_FALLBACKS.includes(b.path));
-  return named ? named.path : null;
+  if (mailbox === 'sent') {
+    const boxes = await client.list();
+    const special = boxes.find((b) => b.specialUse === '\\Sent');
+    if (special) return special.path;
+    const named = boxes.find((b) => SENT_FALLBACKS.includes(b.path));
+    return named ? named.path : null;
+  }
+  return mailbox;
+}
+
+/** 계정의 폴더 목록 (스팸/정크 제외). */
+export async function listImapFolders(
+  address: string,
+  password: string,
+  cfg: ImapCfg,
+): Promise<MailFolder[]> {
+  const client = makeClient(address, password, cfg);
+  await client.connect();
+  try {
+    const boxes = await client.list();
+    const kindOf = (su?: string): MailFolder['kind'] => {
+      if (su === '\\Sent') return 'sent';
+      if (su === '\\Trash') return 'trash';
+      if (su === '\\Drafts') return 'drafts';
+      return 'folder';
+    };
+    return boxes
+      .filter((b) => b.specialUse !== '\\Junk' && !SPAM_FALLBACKS.includes(b.path))
+      // 선택 불가(\\Noselect) 폴더는 제외.
+      .filter((b) => !b.flags?.has('\\Noselect'))
+      .map((b) => ({
+        id: b.path,
+        name: b.path === 'INBOX' ? '받은편지함' : b.name || b.path,
+        kind: b.path === 'INBOX' ? ('inbox' as const) : kindOf(b.specialUse),
+      }));
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
 }
 
 /** 메일함 목록 (메타데이터). 기본 INBOX, mailbox='sent'면 보낸편지함. */

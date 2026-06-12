@@ -4,6 +4,7 @@ import type {
   MailAccount,
   MailAttachment,
   MailDraft,
+  MailFolder,
   MailGateway,
   MailMessage,
 } from './providers/types';
@@ -29,6 +30,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export async function listAccounts(): Promise<MailAccount[]> {
   const data = await request<{ accounts: MailAccount[] }>('/api/accounts/list');
   return data.accounts;
+}
+
+/** 계정의 폴더(메일함) 목록 — 스팸 제외. */
+export async function listFolders(accountId: string): Promise<MailFolder[]> {
+  const data = await request<{ folders: MailFolder[] }>(
+    `/api/folders?accountId=${encodeURIComponent(accountId)}`,
+  );
+  return data.folders;
 }
 
 /** 계정 연결 해제(로그아웃) — 세션에서 제거하고 자격증명 폐기. */

@@ -26,7 +26,7 @@ export default function ReadPage() {
     setParams({
       accountId: q.get('accountId') ?? '',
       id: q.get('id') ?? '',
-      mailbox: q.get('mailbox') === 'sent' ? 'sent' : 'inbox',
+      mailbox: q.get('mailbox') || 'inbox',
     });
   }, []);
 

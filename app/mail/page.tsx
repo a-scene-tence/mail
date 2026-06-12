@@ -7,7 +7,12 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { listAccounts, mailApi, removeAccount } from '@/lib/api-client';
+import {
+  listAccounts,
+  listFolders,
+  mailApi,
+  removeAccount,
+} from '@/lib/api-client';
 import type { MailMessage, Mailbox } from '@/lib/providers/types';
 import { getProvider } from '@/lib/providers/registry';
 import { MailListItem } from '@/components/MailListItem';
@@ -45,6 +50,24 @@ export default function MailPage() {
     placeholderData: keepPreviousData,
     retry: false,
   });
+
+  // 단일 계정 선택 시에만 그 계정의 폴더 목록을 불러온다.
+  const foldersQ = useQuery({
+    queryKey: ['folders', accountId],
+    queryFn: () => listFolders(accountId as string),
+    enabled: !!accountId,
+    retry: false,
+  });
+  // 받은/보낸 외 '기타 폴더'만 드롭다운에 노출(스팸은 서버에서 이미 제외).
+  const otherFolders = (foldersQ.data ?? []).filter(
+    (f) => f.kind !== 'inbox' && f.kind !== 'sent',
+  );
+  const folderName =
+    mailbox === 'inbox'
+      ? '받은편지함'
+      : mailbox === 'sent'
+        ? '보낸편지함'
+        : ((foldersQ.data ?? []).find((f) => f.id === mailbox)?.name ?? '폴더');
 
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Map<string, Ref>>(new Map());
@@ -116,6 +139,12 @@ export default function MailPage() {
   function switchAccount(id: string | undefined) {
     if (id === accountId) return;
     setAccountId(id);
+    setMailbox('inbox'); // 폴더는 계정별이라 계정 전환 시 받은편지함으로.
+    resetSelect();
+  }
+
+  function selectFolder(id: string) {
+    setMailbox(id || 'inbox');
     resetSelect();
   }
 
@@ -218,10 +247,10 @@ export default function MailPage() {
 
       <header className="mb-6 mt-6 flex items-end justify-between">
         <div>
-          <Label>{mailbox === 'sent' ? 'Sent' : 'Inbox'}</Label>
-          <h1 className="display mt-3">
-            {mailbox === 'sent' ? '보낸편지함' : '받은편지함'}
-          </h1>
+          <Label>
+            {mailbox === 'inbox' ? 'Inbox' : mailbox === 'sent' ? 'Sent' : 'Folder'}
+          </Label>
+          <h1 className="display mt-3">{folderName}</h1>
         </div>
         <div className="flex items-center gap-5">
           {messages.length > 0 &&
@@ -278,6 +307,28 @@ export default function MailPage() {
               onClick={() => switchAccount(t.id)}
             />
           ))}
+        </div>
+      )}
+
+      {accountId && otherFolders.length > 0 && (
+        <div className="mb-6">
+          <label className="flex items-center gap-3 border-b border-hairline py-1 focus-within:border-ink">
+            <span className="eyebrow shrink-0">기타 폴더</span>
+            <select
+              value={
+                mailbox === 'inbox' || mailbox === 'sent' ? '' : mailbox
+              }
+              onChange={(e) => selectFolder(e.target.value)}
+              className="w-full bg-transparent py-1.5 text-sm text-ink outline-none"
+            >
+              <option value="">받은편지함/보낸편지함</option>
+              {otherFolders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       )}
 
@@ -374,9 +425,7 @@ export default function MailPage() {
           text={
             query
               ? `‘${query}’에 대한 검색결과가 없습니다.`
-              : mailbox === 'sent'
-                ? '보낸 메일이 없습니다.'
-                : '받은 메일이 없습니다.'
+              : `${folderName}에 메일이 없습니다.`
           }
           cta={false}
         />

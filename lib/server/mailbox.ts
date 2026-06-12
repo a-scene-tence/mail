@@ -1,4 +1,9 @@
-import type { MailDraft, MailMessage, Mailbox } from '../providers/types.js';
+import type {
+  MailDraft,
+  MailFolder,
+  MailMessage,
+  Mailbox,
+} from '../providers/types.js';
 import { getProvider } from '../providers/registry.js';
 import type { ResolvedAccount } from './accounts.js';
 import { accessTokenFromRefresh } from './google.js';
@@ -8,9 +13,23 @@ import {
   sendGmail,
   trashGmail,
   getGmailAttachment,
+  listGmailLabels,
 } from './gmail.js';
-import { listImap, getImap, trashImap, getImapAttachment } from './imap.js';
+import {
+  listImap,
+  getImap,
+  trashImap,
+  getImapAttachment,
+  listImapFolders,
+} from './imap.js';
 import { sendSmtp } from './smtp.js';
+
+/** mailbox 식별자 → Gmail 라벨 ID (의미 별칭 변환). */
+function gmailLabel(mailbox: Mailbox): string {
+  if (mailbox === 'inbox') return 'INBOX';
+  if (mailbox === 'sent') return 'SENT';
+  return mailbox;
+}
 
 // 제공자 디스패처 — auth 종류(oauth/imap)에 따라 적합한 게이트웨이로 라우팅.
 // 엔드포인트(api/messages/*)는 이 함수만 호출하고 제공자를 직접 모른다.
@@ -53,12 +72,7 @@ export async function listMailbox(
   let msgs: MailMessage[];
   if (p.auth === 'oauth') {
     const token = await accessTokenFromRefresh(r.secret);
-    msgs = await listGmail(
-      r.account.id,
-      token,
-      fetchLimit,
-      mailbox === 'sent' ? 'SENT' : 'INBOX',
-    );
+    msgs = await listGmail(r.account.id, token, fetchLimit, gmailLabel(mailbox));
   } else {
     if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
     msgs = await listImap(
@@ -73,6 +87,19 @@ export async function listMailbox(
 
   if (q) return msgs.filter((m) => matchesQuery(m, q)).slice(0, limit);
   return msgs;
+}
+
+/** 계정의 폴더(메일함) 목록 — 스팸 제외. */
+export async function listFolders(
+  r: ResolvedAccount,
+): Promise<MailFolder[]> {
+  const p = providerOf(r);
+  if (p.auth === 'oauth') {
+    const token = await accessTokenFromRefresh(r.secret);
+    return listGmailLabels(token);
+  }
+  if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
+  return listImapFolders(r.account.address, r.secret, p.imap);
 }
 
 /** 단일 메시지 (본문 포함). */

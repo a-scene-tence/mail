@@ -53,7 +53,7 @@ export default function ComposePage() {
       mode: m === 'reply' || m === 'forward' ? m : null,
       accountId: q.get('accountId') ?? '',
       srcId: q.get('srcId') ?? '',
-      mailbox: q.get('mailbox') === 'sent' ? 'sent' : 'inbox',
+      mailbox: q.get('mailbox') || 'inbox',
     });
   }, []);
 

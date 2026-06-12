@@ -83,8 +83,21 @@ export interface MailDraft {
   readReceipt?: boolean;
 }
 
-/** 조회할 메일함. */
-export type Mailbox = 'inbox' | 'sent';
+/**
+ * 조회할 메일함 식별자.
+ * - 'inbox' / 'sent' : 제공자 공통 의미 별칭(전체계정 합산 탭에서 사용).
+ * - 그 외 문자열 : 특정 계정의 폴더 식별자(Gmail=labelId, IMAP=폴더 path).
+ */
+export type Mailbox = string;
+
+/** 계정의 메일함(폴더/라벨) 한 개. */
+export interface MailFolder {
+  /** 폴더 식별자 — Gmail labelId 또는 IMAP path */
+  id: string;
+  /** 표시명 */
+  name: string;
+  kind?: 'inbox' | 'sent' | 'trash' | 'drafts' | 'folder';
+}
 
 export interface ListOptions {
   /** 통합 받은편지함이면 생략, 계정별이면 지정 */

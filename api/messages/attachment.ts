@@ -19,7 +19,7 @@ export default async function handler(
   const accountId = typeof q.accountId === 'string' ? q.accountId : '';
   const messageId = typeof q.messageId === 'string' ? q.messageId : '';
   const attachmentId = typeof q.attachmentId === 'string' ? q.attachmentId : '';
-  const mailbox = q.mailbox === 'sent' ? 'sent' : 'inbox';
+  const mailbox = typeof q.mailbox === 'string' && q.mailbox ? q.mailbox : 'inbox';
   const filename = typeof q.filename === 'string' ? q.filename : 'attachment';
   const mimeType =
     typeof q.mimeType === 'string' ? q.mimeType : 'application/octet-stream';
