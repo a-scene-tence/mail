@@ -34,16 +34,43 @@ export function startGoogleLogin(): void {
   window.location.href = `${API_BASE}/api/auth/google/start`;
 }
 
+/** IMAP 로그인 실패 시 서버가 준 사유(reason)를 함께 던지는 에러. */
+export class ImapLoginError extends Error {
+  reason?: string;
+  detail?: string;
+  constructor(message: string, reason?: string, detail?: string) {
+    super(message);
+    this.name = 'ImapLoginError';
+    this.reason = reason;
+    this.detail = detail;
+  }
+}
+
 /** IMAP 계정 로그인 — 자격증명을 서버에 전송해 검증 후 세션 발급. */
 export async function imapLogin(
   providerId: string,
   address: string,
   password: string,
 ): Promise<void> {
-  await request('/api/auth/imap/login', {
+  const res = await fetch(`${API_BASE}/api/auth/imap/login`, {
     method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ providerId, address, password }),
   });
+  if (!res.ok) {
+    // 서버가 준 reason/detail을 끌어내 구체적 안내에 활용.
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      reason?: string;
+      detail?: string;
+    };
+    throw new ImapLoginError(
+      body.error ?? `로그인 실패 (${res.status})`,
+      body.reason,
+      body.detail,
+    );
+  }
 }
 
 /** 프론트에서 쓰는 게이트웨이 — 모든 메일 동작은 백엔드를 경유한다. */

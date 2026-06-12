@@ -17,6 +17,15 @@ export interface MailProvider {
   imap?: { host: string; port: number; secure: boolean };
   /** imap 제공자만 (발송) */
   smtp?: { host: string; port: number; secure: boolean };
+  /** imap 제공자 로그인 전 설정 안내 (IMAP 켜기·앱 비밀번호 등) */
+  imapHelp?: {
+    /** 설정 화면 링크 */
+    settingsUrl?: string;
+    /** 단계별 안내 */
+    steps: string[];
+    /** 추가 주의사항 (예: Outlook 기본 인증 차단) */
+    note?: string;
+  };
 }
 
 /** 등록된 사용자 계정 (자격증명은 서버에만, 여기엔 식별자만). */

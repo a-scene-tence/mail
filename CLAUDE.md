@@ -91,3 +91,4 @@ npm run lint       # next lint
 - 2026-06-11: M3 검증 — 콜백 "로그인 실패" 진단 패치(`?reason=<stage>` 노출). 실원인은 `CREDENTIALS_ENCRYPTION_KEY` Vercel 미설정(`@seal`). 환경변수 설정으로 해결. `DEPLOY.md`에 `?reason=` 진단표 추가.
 - 2026-06-12: M4 — 메일 삭제(휴지통)·회신·전달(스레드 연결). `api/messages/delete`, `trashGmail`/`trashImap`, `gmail.modify` 스코프, 작성 화면 reply/forward 프리필. 죽은 스텁 `lib/providers/gmail.ts` 제거.
 - 2026-06-12: M4.1 — 받은편지함 선택 모드(다중 선택 일괄 삭제, 단일 선택 회신/전달). 프론트만 변경(`app/mail/page.tsx`·`components/MailListItem.tsx`), 기존 `mailApi.deleteMessage`·`/compose` 프리필 재사용.
+- 2026-06-12: IMAP 로그인 안내/진단 개선 — 제공자 레지스트리에 `imapHelp`(설정 단계·앱 비밀번호·해외 로그인 차단 주의) 추가해 로그인 화면에 노출. `/api/auth/imap/login`이 실패 `reason`(auth/connect)+`detail`(서버 응답) 반환, `ImapLoginError`로 프론트에 구체 사유 표시.

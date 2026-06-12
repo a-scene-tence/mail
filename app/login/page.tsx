@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { PROVIDERS } from '@/lib/providers/registry';
 import type { MailProvider } from '@/lib/providers/types';
 import { ProviderCard } from '@/components/ProviderCard';
-import { startGoogleLogin, imapLogin } from '@/lib/api-client';
+import { startGoogleLogin, imapLogin, ImapLoginError } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import { TextField } from '@/components/ui/TextField';
@@ -79,19 +79,31 @@ function AuthForm({
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [errDetail, setErrDetail] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setErrMsg(null);
+    setErrDetail(null);
     try {
       await imapLogin(provider.id, email, password);
       window.location.href = '/mail/';
-    } catch {
-      setErrMsg('로그인 실패 — 이메일/앱 비밀번호 또는 IMAP 설정을 확인해 주세요.');
+    } catch (err) {
+      // 서버가 준 reason에 따라 구체적 안내. 원문(detail)은 진단용으로 함께 노출.
+      const reason = err instanceof ImapLoginError ? err.reason : undefined;
+      setErrMsg(
+        reason === 'connect'
+          ? '메일 서버에 연결하지 못했습니다. 네트워크나 IMAP 호스트 설정을 확인하고 잠시 후 다시 시도해 주세요.'
+          : '로그인 실패 — 이메일/앱 비밀번호가 맞는지, 아래 IMAP/앱 비밀번호 설정을 마쳤는지 확인해 주세요.',
+      );
+      const detail = err instanceof ImapLoginError ? err.detail : undefined;
+      if (detail) setErrDetail(detail);
       setSubmitting(false);
     }
   }
+
+  const help = provider.imapHelp;
 
   return (
     <section>
@@ -112,39 +124,77 @@ function AuthForm({
           </Button>
         </div>
       ) : (
-        <form className="mt-8 space-y-6" onSubmit={onSubmit}>
-          <TextField
-            id="address"
-            label="이메일 주소"
-            type="email"
-            placeholder={`you@${provider.domain}`}
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <TextField
-            id="app-password"
-            label="앱 비밀번호"
-            type="password"
-            placeholder="앱 비밀번호"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <p className="text-xs text-gray">
-            IMAP({provider.imap?.host}) · SMTP({provider.smtp?.host}).
-            자격증명은 서버에서 암호화 보관됩니다.
-          </p>
-          {errMsg && (
-            <p className="text-sm text-ink border-t border-ink pt-3">{errMsg}</p>
+        <>
+          {help && (
+            <div className="mt-8 border-t border-hairline pt-5">
+              <p className="eyebrow mb-3">로그인 전 설정</p>
+              {help.steps.length > 0 && (
+                <ol className="space-y-2 text-sm text-gray">
+                  {help.steps.map((s, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="shrink-0 text-ink">{i + 1}.</span>
+                      <span>{s}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {help.note && (
+                <p className="mt-3 text-xs text-gray">{help.note}</p>
+              )}
+              {help.settingsUrl && (
+                <a
+                  href={help.settingsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-block text-sm text-ink underline"
+                >
+                  {provider.label} 설정 열기 →
+                </a>
+              )}
+            </div>
           )}
-          <Button
-            type="submit"
-            disabled={submitting || !email || !password}
-          >
-            {submitting ? '로그인 중…' : '로그인'}
-          </Button>
-        </form>
+
+          <form className="mt-8 space-y-6" onSubmit={onSubmit}>
+            <TextField
+              id="address"
+              label="이메일 주소"
+              type="email"
+              placeholder={`you@${provider.domain}`}
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <TextField
+              id="app-password"
+              label="앱 비밀번호"
+              type="password"
+              placeholder="앱 비밀번호"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <p className="text-xs text-gray">
+              IMAP({provider.imap?.host}) · SMTP({provider.smtp?.host}).
+              자격증명은 서버에서 암호화 보관됩니다.
+            </p>
+            {errMsg && (
+              <div className="border-t border-ink pt-3">
+                <p className="text-sm text-ink">{errMsg}</p>
+                {errDetail && (
+                  <p className="mt-1 break-words text-xs text-gray">
+                    서버 응답: {errDetail}
+                  </p>
+                )}
+              </div>
+            )}
+            <Button
+              type="submit"
+              disabled={submitting || !email || !password}
+            >
+              {submitting ? '로그인 중…' : '로그인'}
+            </Button>
+          </form>
+        </>
       )}
     </section>
   );

@@ -37,10 +37,16 @@ export default async function handler(
 
     try {
       await verifyImap(address, password, provider.imap);
-    } catch {
-      res
-        .status(401)
-        .json({ error: '인증 실패 — 이메일/앱 비밀번호 또는 IMAP 설정 확인' });
+    } catch (err) {
+      // 실제 실패 사유를 화면에 전달(진단). 연결 오류와 인증 오류를 구분.
+      const msg = (err as Error)?.message ?? '';
+      const reason = /timeout|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|getaddrinfo|socket/i.test(
+        msg,
+      )
+        ? 'connect'
+        : 'auth';
+      console.error(`imap 로그인 실패 @${reason}:`, msg);
+      res.status(401).json({ error: '인증 실패', reason, detail: msg });
       return;
     }
 
