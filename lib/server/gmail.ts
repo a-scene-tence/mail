@@ -121,18 +121,16 @@ function toMailMessage(
   return base;
 }
 
-/** 메일함 목록 (메타데이터). 기본 INBOX, label='SENT'면 보낸편지함. query면 전체 검색. */
+/** 메일함 목록 (메타데이터). 기본 INBOX, label='SENT'면 보낸편지함. */
 export async function listGmail(
   accountId: string,
   accessToken: string,
   limit = 20,
   label: 'INBOX' | 'SENT' = 'INBOX',
-  query?: string,
 ): Promise<MailMessage[]> {
-  const q = query ? `&q=${encodeURIComponent(query)}` : '';
   const list = await gget<{ messages?: { id: string }[] }>(
     accessToken,
-    `/messages?maxResults=${limit}&labelIds=${label}${q}`,
+    `/messages?maxResults=${limit}&labelIds=${label}`,
   );
   const ids = list.messages ?? [];
   const metaHeaders = '&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject';

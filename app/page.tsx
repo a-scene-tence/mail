@@ -1,25 +1,14 @@
-import Link from 'next/link';
-import { AccountsSection } from '@/components/AccountsSection';
-import { Label } from '@/components/ui/Label';
+'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
+// 마케팅 첫 화면 제거 — 앱은 곧장 받은편지함으로 진입한다.
+// 계정 관리(로그인/연결 해제/상태)는 받은편지함 내 '계정' 패널에서.
 export default function HomePage() {
-  return (
-    <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
-      <header className="mb-12">
-        <Label>Unified Inbox</Label>
-        <h1 className="display mt-3">한 곳에서, 모든 메일.</h1>
-        <p className="mt-4 max-w-md text-gray">
-          흩어진 이메일 계정을 한 번의 로그인으로 모아 읽고 보냅니다.
-        </p>
-      </header>
-
-      <AccountsSection />
-
-      <section className="mt-12 border-t border-hairline pt-8">
-        <Link href="/mail" className="text-sm tracking-tight text-ink underline">
-          받은편지함 보기 →
-        </Link>
-      </section>
-    </main>
-  );
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/mail');
+  }, [router]);
+  return null;
 }

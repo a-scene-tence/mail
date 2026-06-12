@@ -20,8 +20,12 @@ export interface StoredAccount {
 export interface CredentialStore {
   putAccount(acc: StoredAccount): Promise<void>;
   getAccount(id: string): Promise<StoredAccount | null>;
+  /** 계정 레코드 삭제(자격증명 영구 폐기). */
+  deleteAccount(id: string): Promise<void>;
   /** 세션에 계정 연결(있으면 병합). */
   linkSession(sessionId: string, accountId: string): Promise<void>;
+  /** 세션에서 계정 연결 해제. */
+  unlinkSession(sessionId: string, accountId: string): Promise<void>;
   getSessionAccountIds(sessionId: string): Promise<string[]>;
 }
 
@@ -36,10 +40,16 @@ const memoryStore: CredentialStore = {
   async getAccount(id) {
     return memAccounts.get(id) ?? null;
   },
+  async deleteAccount(id) {
+    memAccounts.delete(id);
+  },
   async linkSession(sessionId, accountId) {
     const set = memSessions.get(sessionId) ?? new Set<string>();
     set.add(accountId);
     memSessions.set(sessionId, set);
+  },
+  async unlinkSession(sessionId, accountId) {
+    memSessions.get(sessionId)?.delete(accountId);
   },
   async getSessionAccountIds(sessionId) {
     return Array.from(memSessions.get(sessionId) ?? []);
@@ -56,8 +66,14 @@ function kvStore(): CredentialStore {
     async getAccount(id) {
       return (await kv.get<StoredAccount>(`account:${id}`)) ?? null;
     },
+    async deleteAccount(id) {
+      await kv.del(`account:${id}`);
+    },
     async linkSession(sessionId, accountId) {
       await kv.sadd(`session:${sessionId}`, accountId);
+    },
+    async unlinkSession(sessionId, accountId) {
+      await kv.srem(`session:${sessionId}`, accountId);
     },
     async getSessionAccountIds(sessionId) {
       return (await kv.smembers(`session:${sessionId}`)) ?? [];

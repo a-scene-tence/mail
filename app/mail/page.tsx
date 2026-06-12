@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   keepPreviousData,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { listAccounts, mailApi } from '@/lib/api-client';
+import { listAccounts, mailApi, removeAccount } from '@/lib/api-client';
 import type { MailMessage, Mailbox } from '@/lib/providers/types';
 import { getProvider } from '@/lib/providers/registry';
 import { MailListItem } from '@/components/MailListItem';
@@ -50,6 +50,44 @@ export default function MailPage() {
   const [selected, setSelected] = useState<Map<string, Ref>>(new Map());
   const [deleting, setDeleting] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
+
+  // 계정 관리 패널(현재 로그인 상태 / 연결 해제 / 로그인).
+  const [showAccounts, setShowAccounts] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  async function onDisconnect(id: string, address: string) {
+    if (removingId) return;
+    if (!window.confirm(`${address} 계정 연결을 해제할까요?`)) return;
+    setRemovingId(id);
+    try {
+      await removeAccount(id);
+      if (accountId === id) setAccountId(undefined);
+      await queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      await queryClient.invalidateQueries({ queryKey: ['messages'] });
+    } catch {
+      window.alert('연결 해제에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setRemovingId(null);
+    }
+  }
+
+  // 좌우 스와이프로 받은/보낸 탭 전환.
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
+  function onTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY };
+  }
+  function onTouchEnd(e: React.TouchEvent) {
+    const s = touchRef.current;
+    touchRef.current = null;
+    if (!s) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - s.x;
+    const dy = t.clientY - s.y;
+    // 가로 이동이 충분하고 세로보다 우세할 때만 탭 전환.
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy)) return;
+    switchBox(dx < 0 ? 'sent' : 'inbox');
+  }
 
   function resetSelect() {
     setSelectMode(false);
@@ -157,10 +195,26 @@ export default function MailPage() {
   const count = selected.size;
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
-      <Link href="/" className="eyebrow">
-        ← 뒤로
-      </Link>
+    <main
+      className="mx-auto min-h-screen w-full max-w-content px-6 py-16"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
+      <button
+        type="button"
+        onClick={() => setShowAccounts((v) => !v)}
+        className="eyebrow hover:text-ink"
+      >
+        계정 {showAccounts ? '닫기' : `· ${accounts.length}개 연결됨`}
+      </button>
+
+      {showAccounts && (
+        <AccountsPanel
+          accounts={accounts}
+          removingId={removingId}
+          onDisconnect={onDisconnect}
+        />
+      )}
 
       <header className="mb-6 mt-6 flex items-end justify-between">
         <div>
@@ -330,6 +384,65 @@ export default function MailPage() {
         <Notice text="아직 연결된 계정이 없습니다." cta />
       )}
     </main>
+  );
+}
+
+function AccountsPanel({
+  accounts,
+  removingId,
+  onDisconnect,
+}: {
+  accounts: { id: string; providerId: string; address: string }[];
+  removingId: string | null;
+  onDisconnect: (id: string, address: string) => void;
+}) {
+  return (
+    <section className="mb-4 mt-5 border-t border-hairline pt-5">
+      <div className="mb-3 flex items-center justify-between">
+        <Label>계정</Label>
+        <Link href="/login" className="eyebrow hover:text-ink">
+          계정 추가 +
+        </Link>
+      </div>
+      {accounts.length === 0 ? (
+        <p className="py-4 text-sm text-gray">
+          연결된 계정이 없습니다.{' '}
+          <Link href="/login" className="text-ink underline">
+            로그인 →
+          </Link>
+        </p>
+      ) : (
+        <ul>
+          {accounts.map((a) => (
+            <li
+              key={a.id}
+              className="flex items-center justify-between border-t border-hairline py-4"
+            >
+              <span className="flex min-w-0 flex-col">
+                <span className="flex items-center gap-2 truncate text-sm text-ink">
+                  <span
+                    aria-hidden
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink"
+                  />
+                  {a.address}
+                </span>
+                <span className="mt-1 text-xs text-gray">
+                  {getProvider(a.providerId)?.label ?? a.providerId} · 연결됨
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onDisconnect(a.id, a.address)}
+                disabled={removingId === a.id}
+                className="eyebrow shrink-0 hover:text-ink disabled:opacity-40"
+              >
+                {removingId === a.id ? '해제 중…' : '연결 해제'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

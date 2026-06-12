@@ -57,7 +57,7 @@ async function resolveMailbox(
   return named ? named.path : null;
 }
 
-/** 메일함 목록 (메타데이터). 기본 INBOX, mailbox='sent'면 보낸편지함. query면 전체 검색. */
+/** 메일함 목록 (메타데이터). 기본 INBOX, mailbox='sent'면 보낸편지함. */
 export async function listImap(
   accountId: string,
   address: string,
@@ -65,7 +65,6 @@ export async function listImap(
   cfg: ImapCfg,
   limit = 20,
   mailbox: Mailbox = 'inbox',
-  query?: string,
 ): Promise<MailMessage[]> {
   const client = makeClient(address, password, cfg);
   await client.connect();
@@ -74,40 +73,18 @@ export async function listImap(
     if (!path) return [];
     const lock = await client.getMailboxLock(path);
     try {
-      // 검색이면 SEARCH로 UID 후보를 구해 마지막 limit개만 가져온다.
-      let range: string;
-      if (query && query.trim()) {
-        const uids = await client.search(
-          {
-            or: [
-              { subject: query },
-              { from: query },
-              { to: query },
-              { body: query },
-            ],
-          },
-          { uid: true },
-        );
-        if (!uids || uids.length === 0) return [];
-        range = uids.slice(-limit).join(',');
-      } else {
-        const total =
-          typeof client.mailbox === 'object' && client.mailbox
-            ? (client.mailbox as { exists: number }).exists
-            : 0;
-        if (!total) return [];
-        range = `${Math.max(1, total - limit + 1)}:*`;
-      }
+      const total =
+        typeof client.mailbox === 'object' && client.mailbox
+          ? (client.mailbox as { exists: number }).exists
+          : 0;
+      if (!total) return [];
+      const start = Math.max(1, total - limit + 1);
       const out: MailMessage[] = [];
-      for await (const msg of client.fetch(
-        range,
-        {
-          envelope: true,
-          flags: true,
-          internalDate: true,
-        },
-        { uid: !!(query && query.trim()) },
-      )) {
+      for await (const msg of client.fetch(`${start}:*`, {
+        envelope: true,
+        flags: true,
+        internalDate: true,
+      })) {
         const env = msg.envelope;
         out.push({
           id: String(msg.uid),

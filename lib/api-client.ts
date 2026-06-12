@@ -31,6 +31,14 @@ export async function listAccounts(): Promise<MailAccount[]> {
   return data.accounts;
 }
 
+/** 계정 연결 해제(로그아웃) — 세션에서 제거하고 자격증명 폐기. */
+export async function removeAccount(accountId: string): Promise<void> {
+  await request('/api/accounts/remove', {
+    method: 'POST',
+    body: JSON.stringify({ accountId }),
+  });
+}
+
 /** Gmail OAuth 시작 — 동의 화면으로 이동. */
 export function startGoogleLogin(): void {
   window.location.href = `${API_BASE}/api/auth/google/start`;

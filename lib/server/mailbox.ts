@@ -21,7 +21,25 @@ function providerOf(r: ResolvedAccount) {
   return p;
 }
 
-/** 메일함 목록 (기본 INBOX, mailbox='sent'면 보낸편지함, query면 전체 검색). */
+// 검색 시 가져올 최근 메시지 창 크기 (이 범위 내에서 부분일치 필터).
+const SEARCH_WINDOW = 50;
+
+/** 제목·보낸사람·받는사람·미리보기에서 대소문자 무시 부분일치. */
+function matchesQuery(m: MailMessage, q: string): boolean {
+  const s = q.toLowerCase();
+  return (
+    m.from.toLowerCase().includes(s) ||
+    m.subject.toLowerCase().includes(s) ||
+    m.to.some((t) => t.toLowerCase().includes(s)) ||
+    (m.snippet ?? '').toLowerCase().includes(s)
+  );
+}
+
+/**
+ * 메일함 목록 (기본 INBOX, mailbox='sent'면 보낸편지함).
+ * query가 있으면 최근 SEARCH_WINDOW개를 받아 서버에서 부분일치 필터(제공자 검색
+ * 문법·CJK 색인 차이에 영향받지 않게 예측 가능한 substring 매칭).
+ */
 export async function listMailbox(
   r: ResolvedAccount,
   limit: number,
@@ -29,26 +47,32 @@ export async function listMailbox(
   query?: string,
 ): Promise<MailMessage[]> {
   const p = providerOf(r);
+  const q = query?.trim();
+  const fetchLimit = q ? SEARCH_WINDOW : limit;
+
+  let msgs: MailMessage[];
   if (p.auth === 'oauth') {
     const token = await accessTokenFromRefresh(r.secret);
-    return listGmail(
+    msgs = await listGmail(
       r.account.id,
       token,
-      limit,
+      fetchLimit,
       mailbox === 'sent' ? 'SENT' : 'INBOX',
-      query,
+    );
+  } else {
+    if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
+    msgs = await listImap(
+      r.account.id,
+      r.account.address,
+      r.secret,
+      p.imap,
+      fetchLimit,
+      mailbox,
     );
   }
-  if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
-  return listImap(
-    r.account.id,
-    r.account.address,
-    r.secret,
-    p.imap,
-    limit,
-    mailbox,
-    query,
-  );
+
+  if (q) return msgs.filter((m) => matchesQuery(m, q)).slice(0, limit);
+  return msgs;
 }
 
 /** 단일 메시지 (본문 포함). */
