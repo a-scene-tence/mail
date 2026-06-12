@@ -1,12 +1,19 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listAccounts, mailApi } from '@/lib/api-client';
+import type { MailMessage } from '@/lib/providers/types';
 import { MailListItem } from '@/components/MailListItem';
 import { Label } from '@/components/ui/Label';
 
+type Ref = { accountId: string; id: string };
+
+const keyOf = (m: MailMessage) => `${m.accountId}:${m.id}`;
+
 export default function MailPage() {
+  const queryClient = useQueryClient();
   const accountsQ = useQuery({
     queryKey: ['accounts'],
     queryFn: listAccounts,
@@ -18,9 +25,67 @@ export default function MailPage() {
     retry: false,
   });
 
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Map<string, Ref>>(new Map());
+  const [deleting, setDeleting] = useState(false);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+
   const messages = messagesQ.data ?? [];
   const hasAccount = (accountsQ.data ?? []).length > 0;
   const loading = accountsQ.isLoading || messagesQ.isLoading;
+
+  function exitSelect() {
+    setSelectMode(false);
+    setSelected(new Map());
+    setActionErr(null);
+  }
+
+  function toggle(m: MailMessage) {
+    const k = keyOf(m);
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(k)) next.delete(k);
+      else next.set(k, { accountId: m.accountId, id: m.id });
+      return next;
+    });
+  }
+
+  async function onDelete() {
+    if (deleting || selected.size === 0) return;
+    if (!window.confirm(`선택한 ${selected.size}개 메일을 휴지통으로 이동할까요?`))
+      return;
+    setDeleting(true);
+    setActionErr(null);
+    const refs = [...selected.values()];
+    const results = await Promise.allSettled(
+      refs.map((r) => mailApi.deleteMessage(r.accountId, r.id)),
+    );
+    await queryClient.invalidateQueries({ queryKey: ['messages'] });
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    setDeleting(false);
+    if (failed > 0) {
+      setActionErr(`${failed}개 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.`);
+      // 실패분만 남기기 위해 성공한 항목은 선택 해제.
+      setSelected((prev) => {
+        const next = new Map(prev);
+        refs.forEach((r, i) => {
+          if (results[i].status === 'fulfilled') next.delete(`${r.accountId}:${r.id}`);
+        });
+        return next;
+      });
+    } else {
+      exitSelect();
+    }
+  }
+
+  function composeHref(mode: 'reply' | 'forward'): string {
+    const r = [...selected.values()][0];
+    return `/compose/?mode=${mode}&accountId=${encodeURIComponent(
+      r.accountId,
+    )}&srcId=${encodeURIComponent(r.id)}`;
+  }
+
+  const count = selected.size;
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
@@ -33,10 +98,63 @@ export default function MailPage() {
           <Label>Inbox</Label>
           <h1 className="display mt-3">받은편지함</h1>
         </div>
-        <Link href="/compose/" className="eyebrow">
-          작성 →
-        </Link>
+        <div className="flex items-center gap-5">
+          {messages.length > 0 &&
+            (selectMode ? (
+              <button type="button" onClick={exitSelect} className="eyebrow hover:text-ink">
+                취소
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSelectMode(true)}
+                className="eyebrow hover:text-ink"
+              >
+                선택
+              </button>
+            ))}
+          {!selectMode && (
+            <Link href="/compose/" className="eyebrow">
+              작성 →
+            </Link>
+          )}
+        </div>
       </header>
+
+      {selectMode && (
+        <div className="mb-2 flex items-center justify-between border-t border-ink py-3">
+          <span className="text-sm text-gray">{count}개 선택</span>
+          <div className="flex items-center gap-5">
+            <Link
+              href={count === 1 ? composeHref('reply') : '#'}
+              aria-disabled={count !== 1}
+              className={`eyebrow ${
+                count === 1 ? 'hover:text-ink' : 'pointer-events-none opacity-40'
+              }`}
+            >
+              회신
+            </Link>
+            <Link
+              href={count === 1 ? composeHref('forward') : '#'}
+              aria-disabled={count !== 1}
+              className={`eyebrow ${
+                count === 1 ? 'hover:text-ink' : 'pointer-events-none opacity-40'
+              }`}
+            >
+              전달
+            </Link>
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={count === 0 || deleting}
+              className="eyebrow hover:text-ink disabled:opacity-40"
+            >
+              {deleting ? '삭제 중…' : '삭제'}
+            </button>
+          </div>
+        </div>
+      )}
+      {actionErr && <p className="mb-4 text-sm text-ink">{actionErr}</p>}
 
       {loading ? (
         <Skeleton />
@@ -48,7 +166,13 @@ export default function MailPage() {
       ) : messages.length > 0 ? (
         <section>
           {messages.map((m) => (
-            <MailListItem key={`${m.accountId}:${m.id}`} message={m} />
+            <MailListItem
+              key={keyOf(m)}
+              message={m}
+              selectMode={selectMode}
+              selected={selected.has(keyOf(m))}
+              onToggle={() => toggle(m)}
+            />
           ))}
           <div className="border-t border-hairline" />
         </section>

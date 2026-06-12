@@ -90,3 +90,4 @@ npm run lint       # next lint
 - 2026-06-11: M3 검증 — OAuth `access_denied`(Testing 테스트 사용자 미등록) 진단. Production 게시(외부 배포) 경로 채택, `DEPLOY.md`에 게시 상태 가이드 추가.
 - 2026-06-11: M3 검증 — 콜백 "로그인 실패" 진단 패치(`?reason=<stage>` 노출). 실원인은 `CREDENTIALS_ENCRYPTION_KEY` Vercel 미설정(`@seal`). 환경변수 설정으로 해결. `DEPLOY.md`에 `?reason=` 진단표 추가.
 - 2026-06-12: M4 — 메일 삭제(휴지통)·회신·전달(스레드 연결). `api/messages/delete`, `trashGmail`/`trashImap`, `gmail.modify` 스코프, 작성 화면 reply/forward 프리필. 죽은 스텁 `lib/providers/gmail.ts` 제거.
+- 2026-06-12: M4.1 — 받은편지함 선택 모드(다중 선택 일괄 삭제, 단일 선택 회신/전달). 프론트만 변경(`app/mail/page.tsx`·`components/MailListItem.tsx`), 기존 `mailApi.deleteMessage`·`/compose` 프리필 재사용.
