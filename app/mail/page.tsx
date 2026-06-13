@@ -22,6 +22,25 @@ type Ref = { accountId: string; id: string; folder?: string };
 
 const keyOf = (m: MailMessage) => `${m.accountId}:${m.id}`;
 
+// 표시할 폴더 설정(자격증명 아님)을 계정별로 localStorage에 보관.
+const visKey = (accountId: string) => `mail:visibleFolders:${accountId}`;
+function loadVisibleFolders(accountId: string): string[] | null {
+  try {
+    const s = localStorage.getItem(visKey(accountId));
+    const arr = s ? (JSON.parse(s) as unknown) : null;
+    return Array.isArray(arr) ? (arr as string[]) : null;
+  } catch {
+    return null;
+  }
+}
+function saveVisibleFolders(accountId: string, ids: string[]): void {
+  try {
+    localStorage.setItem(visKey(accountId), JSON.stringify(ids));
+  } catch {
+    /* 저장 실패는 무시(프라이빗 모드 등) */
+  }
+}
+
 export default function MailPage() {
   const queryClient = useQueryClient();
   const accountsQ = useQuery({
@@ -35,8 +54,10 @@ export default function MailPage() {
   const [mailbox, setMailbox] = useState<Mailbox>('inbox');
   // 계정 필터 — undefined=전체, 아니면 account.id.
   const [accountId, setAccountId] = useState<string | undefined>(undefined);
-  // 단일 계정 모드에서 합쳐 볼 폴더 id 집합.
+  // 단일 계정 모드: 표시할 폴더(설정, 영속) 및 그중 현재 보는 폴더(선택).
+  const [visibleFolders, setVisibleFolders] = useState<string[]>([]);
   const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
+  const [showFolderSettings, setShowFolderSettings] = useState(false);
   // 제출된 검색어(입력 중 값과 분리해 Enter 시에만 서버 조회).
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
@@ -52,15 +73,31 @@ export default function MailPage() {
   });
   const folders = foldersQ.data ?? [];
 
-  // 계정 전환 또는 폴더 목록 도착 시 기본 선택을 받은편지함으로 초기화.
+  // 계정 전환/폴더 도착 시: 저장된 '표시 폴더' 설정을 불러오고(없으면 받은·보낸 기본),
+  // 현재 보기는 표시 폴더 전체로 초기화.
   useEffect(() => {
     if (!isSingleAccount) {
+      setVisibleFolders([]);
       setSelectedFolders([]);
+      setShowFolderSettings(false);
       return;
     }
     if (folders.length === 0) return;
-    const inbox = folders.find((f) => f.kind === 'inbox') ?? folders[0];
-    setSelectedFolders([inbox.id]);
+    const existing = new Set(folders.map((f) => f.id));
+    const saved = loadVisibleFolders(accountId as string)?.filter((id) =>
+      existing.has(id),
+    );
+    let vis: string[];
+    if (saved && saved.length) {
+      vis = saved;
+    } else {
+      const inbox = folders.find((f) => f.kind === 'inbox') ?? folders[0];
+      const sent = folders.find((f) => f.kind === 'sent');
+      vis = sent ? [inbox.id, sent.id] : [inbox.id];
+    }
+    setVisibleFolders(vis);
+    setSelectedFolders(vis);
+    setShowFolderSettings(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, folders.length]);
 
@@ -84,18 +121,19 @@ export default function MailPage() {
     retry: false,
   });
 
-  const allFoldersSelected =
-    folders.length > 0 && selectedFolders.length === folders.length;
+  const allVisibleSelected =
+    visibleFolders.length > 0 &&
+    selectedFolders.length === visibleFolders.length;
   const folderTitle = !isSingleAccount
     ? mailbox === 'sent'
       ? '보낸편지함'
       : '받은편지함'
     : selectedFolders.length === 0
       ? '폴더 선택'
-      : allFoldersSelected
-        ? '전체 폴더'
-        : selectedFolders.length === 1
-          ? (folders.find((f) => f.id === selectedFolders[0])?.name ?? '폴더')
+      : selectedFolders.length === 1
+        ? (folders.find((f) => f.id === selectedFolders[0])?.name ?? '폴더')
+        : allVisibleSelected
+          ? '표시 폴더 전체'
           : `${selectedFolders.length}개 폴더`;
 
   const [selectMode, setSelectMode] = useState(false);
@@ -174,6 +212,7 @@ export default function MailPage() {
     // selectedFolders는 foldersQ 도착 시 useEffect가 초기화.
   }
 
+  // 보기: 표시 폴더 중 현재 합쳐 볼 폴더 토글.
   function toggleFolder(id: string) {
     setSelectedFolders((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
@@ -181,9 +220,27 @@ export default function MailPage() {
     resetSelect();
   }
 
-  function toggleAllFolders() {
-    const allIds = folders.map((f) => f.id);
-    setSelectedFolders((prev) => (prev.length === allIds.length ? [] : allIds));
+  // 보기: 표시 폴더 전체 보기/해제.
+  function toggleAllVisible() {
+    setSelectedFolders((prev) =>
+      prev.length === visibleFolders.length ? [] : [...visibleFolders],
+    );
+    resetSelect();
+  }
+
+  // 설정: 어떤 폴더를 바에 표시할지 토글(영속). 표시 해제 시 보기에서도 제거.
+  function toggleVisible(id: string) {
+    if (!accountId) return;
+    setVisibleFolders((prev) => {
+      const next = prev.includes(id)
+        ? prev.filter((x) => x !== id)
+        : [...prev, id];
+      saveVisibleFolders(accountId, next);
+      return next;
+    });
+    setSelectedFolders((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev,
+    );
     resetSelect();
   }
 
@@ -360,25 +417,62 @@ export default function MailPage() {
 
       {isSingleAccount && (
         <div className="mb-6 border-b border-hairline pb-4">
+          <div className="mb-3 flex items-center justify-between">
+            <Label>폴더</Label>
+            <button
+              type="button"
+              onClick={() => setShowFolderSettings((v) => !v)}
+              className="eyebrow hover:text-ink"
+            >
+              {showFolderSettings ? '완료' : '폴더 설정'}
+            </button>
+          </div>
+
           {foldersQ.isLoading ? (
             <p className="py-2 text-sm text-gray">폴더 불러오는 중…</p>
           ) : folders.length === 0 ? (
             <p className="py-2 text-sm text-gray">폴더가 없습니다.</p>
+          ) : showFolderSettings ? (
+            // 설정: 바에 표시할 폴더 고르기(영속).
+            <div>
+              <p className="mb-3 text-xs text-gray">
+                메일함 바에 표시할 폴더를 선택하세요. (스팸 제외)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {folders.map((f) => (
+                  <FolderChip
+                    key={f.id}
+                    label={f.name}
+                    active={visibleFolders.includes(f.id)}
+                    onClick={() => toggleVisible(f.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : visibleFolders.length === 0 ? (
+            <p className="py-1 text-sm text-gray">
+              표시할 폴더가 없습니다. ‘폴더 설정’에서 선택하세요.
+            </p>
           ) : (
+            // 보기: 표시 폴더 중 합쳐 볼 폴더 다중 선택.
             <div className="flex flex-wrap gap-2">
-              <FolderChip
-                label="전체 폴더"
-                active={allFoldersSelected}
-                onClick={toggleAllFolders}
-              />
-              {folders.map((f) => (
+              {visibleFolders.length > 1 && (
                 <FolderChip
-                  key={f.id}
-                  label={f.name}
-                  active={selectedFolders.includes(f.id)}
-                  onClick={() => toggleFolder(f.id)}
+                  label="표시 폴더 전체"
+                  active={allVisibleSelected}
+                  onClick={toggleAllVisible}
                 />
-              ))}
+              )}
+              {folders
+                .filter((f) => visibleFolders.includes(f.id))
+                .map((f) => (
+                  <FolderChip
+                    key={f.id}
+                    label={f.name}
+                    active={selectedFolders.includes(f.id)}
+                    onClick={() => toggleFolder(f.id)}
+                  />
+                ))}
             </div>
           )}
         </div>
