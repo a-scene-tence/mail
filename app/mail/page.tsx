@@ -78,6 +78,10 @@ export default function MailPage() {
   // 제출된 검색어(입력 중 값과 분리해 Enter 시에만 서버 조회).
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
+  // '더 보기'로 점진적으로 키우는 조회 개수(계정당, 최대 500). 컨텍스트 전환 시 20으로 리셋.
+  const [pageSize, setPageSize] = useState(20);
+  const PAGE_STEP = 20;
+  const PAGE_MAX = 500;
 
   const isSingleAccount = !!accountId;
 
@@ -136,10 +140,10 @@ export default function MailPage() {
   const messagesEnabled = !isSingleAccount || selectedFolders.length > 0;
 
   const messagesQ = useQuery({
-    queryKey: ['messages', accountId ?? 'all', effectiveMailbox, query],
+    queryKey: ['messages', accountId ?? 'all', effectiveMailbox, query, pageSize],
     queryFn: () =>
       mailApi.listMessages({
-        limit: 20,
+        limit: pageSize,
         mailbox: effectiveMailbox || 'inbox',
         accountId,
         query: query || undefined,
@@ -148,6 +152,11 @@ export default function MailPage() {
     placeholderData: keepPreviousData,
     retry: false,
   });
+
+  // 탭/폴더/계정/검색 컨텍스트가 바뀌면 다시 첫 페이지(20개)부터.
+  useEffect(() => {
+    setPageSize(20);
+  }, [accountId, category, effectiveMailbox, query]);
 
   const categoryLabel =
     CATEGORIES.find((c) => c.id === category)?.label ?? '받은편지함';
@@ -710,6 +719,21 @@ export default function MailPage() {
             />
           ))}
           <div className="border-t border-hairline" />
+          {/* 더 보기 — 검색이 아니고, 반환 개수가 요청 한도에 닿아(더 있을 가능성) 상한 미만일 때. */}
+          {!query && messages.length >= pageSize && pageSize < PAGE_MAX && (
+            <div className="py-6 text-center">
+              <button
+                type="button"
+                onClick={() =>
+                  setPageSize((p) => Math.min(p + PAGE_STEP, PAGE_MAX))
+                }
+                disabled={messagesQ.isFetching}
+                className="text-sm tracking-tight text-ink underline disabled:opacity-40"
+              >
+                {messagesQ.isFetching ? '불러오는 중…' : '더 보기'}
+              </button>
+            </div>
+          )}
         </section>
       ) : hasAccount ? (
         <Notice

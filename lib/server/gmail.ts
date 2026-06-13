@@ -143,8 +143,11 @@ function gmailBatchSection(section: string): GmailMessage | null {
   }
 }
 
-/** N개 메시지 메타데이터를 배치 1요청으로 조회. 실패 시 throw(호출부가 폴백). */
-async function gmailMetaBatch(
+// Gmail batch 엔드포인트는 요청당 서브요청 100개 상한.
+const BATCH_CHUNK = 100;
+
+/** ≤100개 메시지 메타데이터를 배치 1요청으로 조회. 실패 시 throw. */
+async function gmailMetaBatchChunk(
   accessToken: string,
   ids: string[],
 ): Promise<GmailMessage[]> {
@@ -180,6 +183,24 @@ async function gmailMetaBatch(
     if (msg && msg.id) out.push(msg);
   }
   return out;
+}
+
+/**
+ * N개 메시지 메타데이터를 배치로 조회(100개씩 청크 → 병렬).
+ * 한 청크라도 실패하면 throw → 호출부가 전체를 폴백(부분 누락 방지).
+ */
+async function gmailMetaBatch(
+  accessToken: string,
+  ids: string[],
+): Promise<GmailMessage[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += BATCH_CHUNK) {
+    chunks.push(ids.slice(i, i + BATCH_CHUNK));
+  }
+  const results = await Promise.all(
+    chunks.map((c) => gmailMetaBatchChunk(accessToken, c)),
+  );
+  return results.flat();
 }
 
 /** 메일함 목록 (메타데이터). label은 임의 라벨 ID(기본 INBOX). */

@@ -23,7 +23,7 @@ export default async function handler(
 
   const accountId =
     typeof req.query.accountId === 'string' ? req.query.accountId : undefined;
-  const limit = Math.min(Number(req.query.limit) || 20, 50);
+  const limit = Math.min(Number(req.query.limit) || 20, 500);
   const mailboxParam =
     typeof req.query.mailbox === 'string' && req.query.mailbox
       ? req.query.mailbox
