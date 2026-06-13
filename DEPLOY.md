@@ -170,7 +170,7 @@ curl -i -b /tmp/cookies.txt https://<project>.vercel.app/api/messages/list
 
 ### 받은편지함 선택 모드 (M4.1)
 - 받은편지함 → **선택** → 행 탭으로 체크. **여러 개 선택 → 일괄 삭제**(휴지통 이동), **1개 선택 → 회신/전달** 활성(2개 이상이면 비활성).
-- 삭제는 항목마다 `/api/messages/delete`를 호출(`Promise.allSettled`) — 통합 받은편지함이라 계정이 섞여도 동작.
+- 삭제는 항목마다 `/api/messages/move`(`to='trash'`)를 호출(`Promise.allSettled`) — 통합 받은편지함이라 계정이 섞여도 동작.
 
 ### M4 검증 체크
 1. Gmail 재로그인(modify 동의) → 메일 열기 → 삭제 → 받은편지함에서 사라지고 Gmail 휴지통에 존재.

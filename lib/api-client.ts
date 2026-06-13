@@ -158,9 +158,10 @@ export const mailApi: MailGateway = {
   },
 
   async deleteMessage(accountId: string, messageId: string, mailbox?: Mailbox) {
-    return request<{ ok: true }>(`/api/messages/delete`, {
+    // 삭제 = 휴지통으로 이동. move 엔드포인트로 통합(to='trash').
+    return request<{ ok: true }>(`/api/messages/move`, {
       method: 'POST',
-      body: JSON.stringify({ accountId, id: messageId, mailbox }),
+      body: JSON.stringify({ accountId, id: messageId, from: mailbox, to: 'trash' }),
     });
   },
 

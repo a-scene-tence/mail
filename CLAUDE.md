@@ -53,6 +53,7 @@ npm run lint       # next lint
 - 2026-06-11 | `next build` 린트 단계에서 `Definition for rule '@typescript-eslint/no-var-requires' was not found` 에러 | `eslint-config-next`에 해당 룰이 없는데 `// eslint-disable-next-line @typescript-eslint/no-var-requires` 주석을 달아 ESLint가 "존재하지 않는 룰 비활성화"로 에러 처리 | 동적 `require('@vercel/kv')`를 정적 `import { kv } from '@vercel/kv'`로 바꾸고 disable 주석 제거(KV는 호출 시점에만 연결되므로 정적 import 안전) | next 환경에 없는 룰을 비활성화 주석으로 참조하지 말 것. 동적 require 대신 정적 import 우선.
 - 2026-06-11 | Vercel 서버리스 `/api/*.ts` 함수 `SyntaxError: Unexpected token 'export'` (`/var/task/api/health.js:4`) | `tsconfig.json`의 `"module":"esnext"`로 인해 Vercel이 `/api/*.ts`를 ESM 구문(`export default`)으로 컴파일하는데, `package.json`에 `"type":"module"`이 없어 Node.js가 `.js` 파일을 CJS로 로드 → 파싱 실패 | `package.json`에 `"type": "module"` 추가 | `tsconfig` `"module":"esnext"` 사용 시 반드시 `package.json`에 `"type":"module"` 포함. `/api/*.ts`에 `require()`/`__dirname`/`__filename` 쓰지 말 것(ESM에서 사용 불가).
 - 2026-06-11 | `"type":"module"` 적용 후 `/api/messages/list` 등에서 `ERR_MODULE_NOT_FOUND: Cannot find module '/var/task/lib/server/session'` | Node.js ESM 로더는 상대 경로 import에 **명시적 파일 확장자**를 요구하는데, `@vercel/node`가 `/api/*.ts`를 번들 없이 파일별 트랜스파일만 해서 컴파일된 `.js`가 확장자 없는 `'../../lib/server/session'`을 그대로 import → 해석 실패 | `api/**`·`lib/server/**`의 모든 상대 import에 `.js` 확장자 추가(`'./crypto'`→`'./crypto.js'`). `moduleResolution:'bundler'`라 `.js`가 `.ts`로 해석되어 typecheck·Next 빌드 정상 | ESM(`"type":"module"`)에서 상대 import는 항상 `.js` 확장자 명시. 프론트(Next 번들러)는 확장자 불필요하나 서버리스(Node 직접 실행)는 필수.
+- 2026-06-13 | Vercel 배포 실패 `No more than 12 Serverless Functions can be added to a Deployment on the Hobby plan` | M10에서 `api/messages/move.ts`를 추가해 `/api/*.ts` 함수가 13개가 됨(Hobby 상한 12) | `delete.ts`를 제거하고 삭제를 `move.ts`로 통합(`to='trash'`면 `deleteMessage` 경유, 폴백 유지). 클라이언트 `mailApi.deleteMessage`도 `/api/messages/move`(`to='trash'`) 호출로 변경 | **`api/` 최상위 `.ts` 파일은 곧 서버리스 함수 1개**. 새 엔드포인트 추가 전 함수 수(현재 12)를 확인하고, 한도 임박 시 관련 동작을 한 함수에 메서드/파라미터로 합칠 것.
 
 ### 자주 밟는 함정 체크리스트
 - [ ] `output:'export'` 깨는 기능(SSR/Server Action/Next API Route) 추가하지 않았는가?
@@ -84,7 +85,7 @@ npm run lint       # next lint
 ## M10 — 폴더 이동(메일 이동) (2026-06-13 추가)
 
 - 이동 = `mailbox.moveMessage(r, id, from, to)` 디스패치 → Gmail `moveGmail`(`/messages/{id}/modify`로 대상 라벨 추가 + 원본 라벨 제거, `gmail.modify` 스코프 — 삭제와 동일 스코프라 추가 재동의 불필요), IMAP `moveImap`(원본 폴더 lock 후 `messageMove`, from/to 모두 `resolveMailbox`로 경로 해석, 같은 폴더면 no-op).
-- 신규 `api/messages/move.ts`(body `{accountId,id,from,to}`, `delete.ts`와 동형). `mailApi.moveMessage(accountId,id,to,from?)` + `MailGateway` 인터페이스 확장.
+- `api/messages/move.ts`(body `{accountId,id,from,to}`). **삭제도 이 엔드포인트로 통합** — Hobby 플랜 서버리스 함수 12개 제한 때문에 `delete.ts`를 없애고 `to='trash'`면 `deleteMessage`(IMAP 영구삭제 폴백 유지) 경유. `mailApi.deleteMessage`는 `to='trash'`로, `mailApi.moveMessage(accountId,id,to,from?)`는 일반 폴더로 호출. `MailGateway` 인터페이스 확장.
 - 이동은 **단일 계정에서만** 노출(폴더 식별자가 제공자별로 달라 전체계정 합산 뷰에선 대상 모호). `app/mail/page.tsx` 선택 모드 툴바에 '이동' 버튼 → 폴더 칩 피커(계정 폴더 전체) → 일괄 이동(`Promise.allSettled`, 실패분만 선택 유지 — 삭제 패턴 재사용). `app/read/page.tsx`도 읽기 화면 액션바에 '이동'(폴더 피커는 현재 폴더 제외, `showMove`일 때만 `listFolders` 조회).
 - 각 메시지의 출처 폴더는 `MailMessage.folder`(M9에서 도입)를 from으로 사용해 정확한 폴더에서 이동.
 
