@@ -63,6 +63,7 @@ const SPAM_FALLBACKS = [
  * mailbox 식별자 → 실제 폴더 경로.
  * - 'inbox' → INBOX
  * - 'sent'  → specialUse '\\Sent' 우선, 없으면 폴백명
+ * - 'trash' → specialUse '\\Trash' 우선, 없으면 폴백명
  * - 그 외   → mailbox 자체를 폴더 path로 사용
  */
 async function resolveMailbox(
@@ -75,6 +76,13 @@ async function resolveMailbox(
     const special = boxes.find((b) => b.specialUse === '\\Sent');
     if (special) return special.path;
     const named = boxes.find((b) => SENT_FALLBACKS.includes(b.path));
+    return named ? named.path : null;
+  }
+  if (mailbox === 'trash') {
+    const boxes = await client.list();
+    const special = boxes.find((b) => b.specialUse === '\\Trash');
+    if (special) return special.path;
+    const named = boxes.find((b) => TRASH_FALLBACKS.includes(b.path));
     return named ? named.path : null;
   }
   return mailbox;

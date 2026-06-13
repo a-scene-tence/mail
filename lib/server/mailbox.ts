@@ -28,6 +28,7 @@ import { sendSmtp } from './smtp.js';
 function gmailLabel(mailbox: Mailbox): string {
   if (mailbox === 'inbox') return 'INBOX';
   if (mailbox === 'sent') return 'SENT';
+  if (mailbox === 'trash') return 'TRASH';
   return mailbox;
 }
 

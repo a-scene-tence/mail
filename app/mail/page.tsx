@@ -13,33 +13,29 @@ import {
   mailApi,
   removeAccount,
 } from '@/lib/api-client';
-import type { MailMessage, Mailbox } from '@/lib/providers/types';
+import type { MailFolder, MailMessage } from '@/lib/providers/types';
 import { getProvider } from '@/lib/providers/registry';
 import { MailListItem } from '@/components/MailListItem';
 import { Label } from '@/components/ui/Label';
 
 type Ref = { accountId: string; id: string; folder?: string };
 
-const keyOf = (m: MailMessage) => `${m.accountId}:${m.id}`;
+// 대분류 — 받은편지함/보낸편지함/휴지통. 폴더는 이 셋 중 하나로 묶인다.
+type Category = 'inbox' | 'sent' | 'trash';
+const CATEGORIES: { id: Category; label: string }[] = [
+  { id: 'inbox', label: '받은편지함' },
+  { id: 'sent', label: '보낸편지함' },
+  { id: 'trash', label: '휴지통' },
+];
 
-// 표시할 폴더 설정(자격증명 아님)을 계정별로 localStorage에 보관.
-const visKey = (accountId: string) => `mail:visibleFolders:${accountId}`;
-function loadVisibleFolders(accountId: string): string[] | null {
-  try {
-    const s = localStorage.getItem(visKey(accountId));
-    const arr = s ? (JSON.parse(s) as unknown) : null;
-    return Array.isArray(arr) ? (arr as string[]) : null;
-  } catch {
-    return null;
-  }
+/** 폴더를 대분류로 분류 (sent/trash 외 모두 받은편지함 분류). */
+function folderCategory(f: MailFolder): Category {
+  if (f.kind === 'sent') return 'sent';
+  if (f.kind === 'trash') return 'trash';
+  return 'inbox';
 }
-function saveVisibleFolders(accountId: string, ids: string[]): void {
-  try {
-    localStorage.setItem(visKey(accountId), JSON.stringify(ids));
-  } catch {
-    /* 저장 실패는 무시(프라이빗 모드 등) */
-  }
-}
+
+const keyOf = (m: MailMessage) => `${m.accountId}:${m.id}`;
 
 export default function MailPage() {
   const queryClient = useQueryClient();
@@ -50,14 +46,12 @@ export default function MailPage() {
   });
   const accounts = accountsQ.data ?? [];
 
-  // 전체계정 모드의 받은/보낸 탭.
-  const [mailbox, setMailbox] = useState<Mailbox>('inbox');
+  // 대분류 탭(받은/보낸/휴지통).
+  const [category, setCategory] = useState<Category>('inbox');
   // 계정 필터 — undefined=전체, 아니면 account.id.
   const [accountId, setAccountId] = useState<string | undefined>(undefined);
-  // 단일 계정 모드: 표시할 폴더(설정, 영속) 및 그중 현재 보는 폴더(선택).
-  const [visibleFolders, setVisibleFolders] = useState<string[]>([]);
+  // 단일 계정 모드: 대분류 안에서 합쳐 볼 폴더(선택).
   const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
-  const [showFolderSettings, setShowFolderSettings] = useState(false);
   // 제출된 검색어(입력 중 값과 분리해 Enter 시에만 서버 조회).
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
@@ -73,38 +67,31 @@ export default function MailPage() {
   });
   const folders = foldersQ.data ?? [];
 
-  // 계정 전환/폴더 도착 시: 저장된 '표시 폴더' 설정을 불러오고(없으면 받은·보낸 기본),
-  // 현재 보기는 표시 폴더 전체로 초기화.
+  // 현재 대분류에 속한 폴더들.
+  const categoryFolders = folders.filter((f) => folderCategory(f) === category);
+  // 대분류의 대표 폴더(기본 선택값).
+  const primaryFolderId = (cat: Category): string[] => {
+    const inCat = folders.filter((f) => folderCategory(f) === cat);
+    if (inCat.length === 0) return [];
+    const primary = inCat.find((f) => f.kind === cat) ?? inCat[0];
+    return [primary.id];
+  };
+
+  // 계정 전환/폴더 도착 시 현재 대분류의 대표 폴더로 선택 초기화.
   useEffect(() => {
     if (!isSingleAccount) {
-      setVisibleFolders([]);
       setSelectedFolders([]);
-      setShowFolderSettings(false);
       return;
     }
     if (folders.length === 0) return;
-    const existing = new Set(folders.map((f) => f.id));
-    const saved = loadVisibleFolders(accountId as string)?.filter((id) =>
-      existing.has(id),
-    );
-    let vis: string[];
-    if (saved && saved.length) {
-      vis = saved;
-    } else {
-      const inbox = folders.find((f) => f.kind === 'inbox') ?? folders[0];
-      const sent = folders.find((f) => f.kind === 'sent');
-      vis = sent ? [inbox.id, sent.id] : [inbox.id];
-    }
-    setVisibleFolders(vis);
-    setSelectedFolders(vis);
-    setShowFolderSettings(false);
+    setSelectedFolders(primaryFolderId(category));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, folders.length]);
 
-  // 단일 계정이면 선택 폴더 합산, 아니면 받은/보낸 탭.
+  // 단일 계정이면 대분류 안 선택 폴더 합산, 아니면 대분류 별칭(전체계정 합산).
   const effectiveMailbox = isSingleAccount
     ? selectedFolders.join(',')
-    : mailbox;
+    : category;
   const messagesEnabled = !isSingleAccount || selectedFolders.length > 0;
 
   const messagesQ = useQuery({
@@ -121,20 +108,14 @@ export default function MailPage() {
     retry: false,
   });
 
-  const allVisibleSelected =
-    visibleFolders.length > 0 &&
-    selectedFolders.length === visibleFolders.length;
-  const folderTitle = !isSingleAccount
-    ? mailbox === 'sent'
-      ? '보낸편지함'
-      : '받은편지함'
-    : selectedFolders.length === 0
-      ? '폴더 선택'
-      : selectedFolders.length === 1
-        ? (folders.find((f) => f.id === selectedFolders[0])?.name ?? '폴더')
-        : allVisibleSelected
-          ? '표시 폴더 전체'
-          : `${selectedFolders.length}개 폴더`;
+  const categoryLabel =
+    CATEGORIES.find((c) => c.id === category)?.label ?? '받은편지함';
+  const folderTitle =
+    !isSingleAccount || selectedFolders.length <= 1
+      ? categoryLabel
+      : selectedFolders.length === categoryFolders.length
+        ? `${categoryLabel} 전체`
+        : `${categoryLabel} · ${selectedFolders.length}개`;
 
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Map<string, Ref>>(new Map());
@@ -172,12 +153,17 @@ export default function MailPage() {
     touchRef.current = null;
     if (!s) return;
     const t = e.changedTouches[0];
-    if (isSingleAccount) return; // 단일 계정은 폴더 패널로 전환.
     const dx = t.clientX - s.x;
     const dy = t.clientY - s.y;
-    // 가로 이동이 충분하고 세로보다 우세할 때만 탭 전환.
+    // 가로 이동이 충분하고 세로보다 우세할 때만 대분류 전환.
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy)) return;
-    switchBox(dx < 0 ? 'sent' : 'inbox');
+    const order: Category[] = ['inbox', 'sent', 'trash'];
+    const idx = order.indexOf(category);
+    const next =
+      dx < 0
+        ? order[Math.min(idx + 1, order.length - 1)]
+        : order[Math.max(idx - 1, 0)];
+    switchCategory(next);
   }
 
   function resetSelect() {
@@ -186,33 +172,22 @@ export default function MailPage() {
     setActionErr(null);
   }
 
-  function switchBox(b: Mailbox) {
-    if (b === mailbox) return;
-    setMailbox(b);
+  function switchCategory(cat: Category) {
+    if (cat === category) return;
+    setCategory(cat);
     resetSelect();
-    // 반대 탭을 미리 적재해 전환 체감 단축.
-    const other: Mailbox = b === 'inbox' ? 'sent' : 'inbox';
-    queryClient.prefetchQuery({
-      queryKey: ['messages', accountId ?? 'all', other, query],
-      queryFn: () =>
-        mailApi.listMessages({
-          limit: 30,
-          mailbox: other,
-          accountId,
-          query: query || undefined,
-        }),
-    });
+    if (isSingleAccount) setSelectedFolders(primaryFolderId(cat));
   }
 
   function switchAccount(id: string | undefined) {
     if (id === accountId) return;
     setAccountId(id);
-    setMailbox('inbox'); // 전체계정 탭 기본값.
+    setCategory('inbox');
     resetSelect();
     // selectedFolders는 foldersQ 도착 시 useEffect가 초기화.
   }
 
-  // 보기: 표시 폴더 중 현재 합쳐 볼 폴더 토글.
+  // 대분류 안에서 합쳐 볼 폴더 토글.
   function toggleFolder(id: string) {
     setSelectedFolders((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
@@ -220,26 +195,11 @@ export default function MailPage() {
     resetSelect();
   }
 
-  // 보기: 표시 폴더 전체 보기/해제.
-  function toggleAllVisible() {
+  // 대분류 전체 보기 / 대표 폴더로 되돌리기.
+  function toggleAllInCategory() {
+    const ids = categoryFolders.map((f) => f.id);
     setSelectedFolders((prev) =>
-      prev.length === visibleFolders.length ? [] : [...visibleFolders],
-    );
-    resetSelect();
-  }
-
-  // 설정: 어떤 폴더를 바에 표시할지 토글(영속). 표시 해제 시 보기에서도 제거.
-  function toggleVisible(id: string) {
-    if (!accountId) return;
-    setVisibleFolders((prev) => {
-      const next = prev.includes(id)
-        ? prev.filter((x) => x !== id)
-        : [...prev, id];
-      saveVisibleFolders(accountId, next);
-      return next;
-    });
-    setSelectedFolders((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev,
+      prev.length === ids.length ? primaryFolderId(category) : ids,
     );
     resetSelect();
   }
@@ -347,10 +307,10 @@ export default function MailPage() {
       <header className="mb-6 mt-6 flex items-end justify-between">
         <div>
           <Label>
-            {isSingleAccount
-              ? 'Folders'
-              : mailbox === 'sent'
-                ? 'Sent'
+            {category === 'sent'
+              ? 'Sent'
+              : category === 'trash'
+                ? 'Trash'
                 : 'Inbox'}
           </Label>
           <h1 className="display mt-3">{folderTitle}</h1>
@@ -378,24 +338,22 @@ export default function MailPage() {
         </div>
       </header>
 
-      {!isSingleAccount && (
-        <nav className="mb-8 flex gap-6 border-b border-hairline">
-          {(['inbox', 'sent'] as const).map((b) => (
-            <button
-              key={b}
-              type="button"
-              onClick={() => switchBox(b)}
-              className={`-mb-px border-b-2 pb-3 text-sm tracking-tight transition-colors ${
-                mailbox === b
-                  ? 'border-ink text-ink'
-                  : 'border-transparent text-gray hover:text-ink'
-              }`}
-            >
-              {b === 'inbox' ? '받은편지함' : '보낸편지함'}
-            </button>
-          ))}
-        </nav>
-      )}
+      <nav className="mb-6 flex gap-6 border-b border-hairline">
+        {CATEGORIES.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => switchCategory(c.id)}
+            className={`-mb-px border-b-2 pb-3 text-sm tracking-tight transition-colors ${
+              category === c.id
+                ? 'border-ink text-ink'
+                : 'border-transparent text-gray hover:text-ink'
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </nav>
 
       {accountTabs.length > 1 && (
         <div className="mb-6 flex flex-wrap gap-2">
@@ -415,66 +373,25 @@ export default function MailPage() {
         </div>
       )}
 
-      {isSingleAccount && (
-        <div className="mb-6 border-b border-hairline pb-4">
-          <div className="mb-3 flex items-center justify-between">
-            <Label>폴더</Label>
-            <button
-              type="button"
-              onClick={() => setShowFolderSettings((v) => !v)}
-              className="eyebrow hover:text-ink"
-            >
-              {showFolderSettings ? '완료' : '폴더 설정'}
-            </button>
-          </div>
-
-          {foldersQ.isLoading ? (
-            <p className="py-2 text-sm text-gray">폴더 불러오는 중…</p>
-          ) : folders.length === 0 ? (
-            <p className="py-2 text-sm text-gray">폴더가 없습니다.</p>
-          ) : showFolderSettings ? (
-            // 설정: 바에 표시할 폴더 고르기(영속).
-            <div>
-              <p className="mb-3 text-xs text-gray">
-                메일함 바에 표시할 폴더를 선택하세요. (스팸 제외)
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {folders.map((f) => (
-                  <FolderChip
-                    key={f.id}
-                    label={f.name}
-                    active={visibleFolders.includes(f.id)}
-                    onClick={() => toggleVisible(f.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : visibleFolders.length === 0 ? (
-            <p className="py-1 text-sm text-gray">
-              표시할 폴더가 없습니다. ‘폴더 설정’에서 선택하세요.
-            </p>
-          ) : (
-            // 보기: 표시 폴더 중 합쳐 볼 폴더 다중 선택.
-            <div className="flex flex-wrap gap-2">
-              {visibleFolders.length > 1 && (
-                <FolderChip
-                  label="표시 폴더 전체"
-                  active={allVisibleSelected}
-                  onClick={toggleAllVisible}
-                />
-              )}
-              {folders
-                .filter((f) => visibleFolders.includes(f.id))
-                .map((f) => (
-                  <FolderChip
-                    key={f.id}
-                    label={f.name}
-                    active={selectedFolders.includes(f.id)}
-                    onClick={() => toggleFolder(f.id)}
-                  />
-                ))}
-            </div>
-          )}
+      {/* 대분류 안에서 폴더 선택(단일 계정, 분류에 폴더가 여럿일 때만). */}
+      {isSingleAccount && foldersQ.isLoading && (
+        <p className="mb-6 py-1 text-sm text-gray">폴더 불러오는 중…</p>
+      )}
+      {isSingleAccount && categoryFolders.length > 1 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          <FolderChip
+            label={`${categoryLabel} 전체`}
+            active={selectedFolders.length === categoryFolders.length}
+            onClick={toggleAllInCategory}
+          />
+          {categoryFolders.map((f) => (
+            <FolderChip
+              key={f.id}
+              label={f.name}
+              active={selectedFolders.includes(f.id)}
+              onClick={() => toggleFolder(f.id)}
+            />
+          ))}
         </div>
       )}
 
@@ -549,7 +466,14 @@ export default function MailPage() {
         foldersQ.isLoading ? (
           <Skeleton />
         ) : (
-          <Notice text="표시할 폴더를 선택하세요." cta={false} />
+          <Notice
+            text={
+              categoryFolders.length === 0
+                ? `${categoryLabel} 폴더가 없는 계정입니다.`
+                : '폴더를 선택하세요.'
+            }
+            cta={false}
+          />
         )
       ) : loading ? (
         <Skeleton />
@@ -564,7 +488,7 @@ export default function MailPage() {
             <MailListItem
               key={keyOf(m)}
               message={m}
-              mailbox={mailbox}
+              mailbox={category}
               selectMode={selectMode}
               selected={selected.has(keyOf(m))}
               onToggle={() => toggle(m)}
