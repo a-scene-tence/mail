@@ -76,9 +76,13 @@ export function MailListItem({
     );
   }
 
+  // 집계 목록에선 메시지가 속한 폴더로 열어야 IMAP lock이 정확하다.
+  const openMailbox = message.folder ?? mailbox;
   const href = `/read/?accountId=${encodeURIComponent(
     message.accountId,
-  )}&id=${encodeURIComponent(message.id)}&mailbox=${mailbox}`;
+  )}&id=${encodeURIComponent(message.id)}&mailbox=${encodeURIComponent(
+    openMailbox,
+  )}`;
   return (
     <Link
       href={href}

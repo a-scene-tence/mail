@@ -54,39 +54,71 @@ function matchesQuery(m: MailMessage, q: string): boolean {
   );
 }
 
+// 다폴더 집계 시 과부하 방지를 위한 폴더 수 상한.
+const MAX_FOLDERS = 15;
+
+/** 단일 폴더에서 메시지 목록 fetch (제공자 분기). */
+async function fetchFolder(
+  r: ResolvedAccount,
+  limit: number,
+  folder: Mailbox,
+): Promise<MailMessage[]> {
+  const p = providerOf(r);
+  if (p.auth === 'oauth') {
+    const token = await accessTokenFromRefresh(r.secret);
+    return listGmail(r.account.id, token, limit, gmailLabel(folder));
+  }
+  if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
+  return listImap(r.account.id, r.account.address, r.secret, p.imap, limit, folder);
+}
+
 /**
- * 메일함 목록 (기본 INBOX, mailbox='sent'면 보낸편지함).
- * query가 있으면 최근 SEARCH_WINDOW개를 받아 서버에서 부분일치 필터(제공자 검색
- * 문법·CJK 색인 차이에 영향받지 않게 예측 가능한 substring 매칭).
+ * 한 계정에서 여러 폴더를 합쳐 최신순 목록을 만든다.
+ * - 각 폴더 메시지에 `folder`를 태깅(열람/삭제를 정확한 폴더로).
+ * - accountId:id 로 중복 제거(Gmail 라벨 중복 대비).
+ * - query가 있으면 최근 SEARCH_WINDOW개를 받아 서버 substring 필터.
  */
+export async function listMailboxes(
+  r: ResolvedAccount,
+  limit: number,
+  folderIds: string[],
+  query?: string,
+): Promise<MailMessage[]> {
+  const ids = (folderIds.length ? folderIds : ['inbox']).slice(0, MAX_FOLDERS);
+  const q = query?.trim();
+  const fetchLimit = q ? SEARCH_WINDOW : limit;
+
+  const perFolder = await Promise.all(
+    ids.map((fid) =>
+      fetchFolder(r, fetchLimit, fid)
+        .then((msgs) => msgs.map((m) => ({ ...m, folder: fid })))
+        .catch(() => [] as MailMessage[]),
+    ),
+  );
+
+  const seen = new Set<string>();
+  const merged: MailMessage[] = [];
+  for (const m of perFolder
+    .flat()
+    .sort((a, b) => b.date.localeCompare(a.date))) {
+    const k = `${m.accountId}:${m.id}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(m);
+  }
+
+  const result = q ? merged.filter((m) => matchesQuery(m, q)) : merged;
+  return result.slice(0, limit);
+}
+
+/** 단일 메일함 목록 (호환용 래퍼). */
 export async function listMailbox(
   r: ResolvedAccount,
   limit: number,
   mailbox: Mailbox = 'inbox',
   query?: string,
 ): Promise<MailMessage[]> {
-  const p = providerOf(r);
-  const q = query?.trim();
-  const fetchLimit = q ? SEARCH_WINDOW : limit;
-
-  let msgs: MailMessage[];
-  if (p.auth === 'oauth') {
-    const token = await accessTokenFromRefresh(r.secret);
-    msgs = await listGmail(r.account.id, token, fetchLimit, gmailLabel(mailbox));
-  } else {
-    if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
-    msgs = await listImap(
-      r.account.id,
-      r.account.address,
-      r.secret,
-      p.imap,
-      fetchLimit,
-      mailbox,
-    );
-  }
-
-  if (q) return msgs.filter((m) => matchesQuery(m, q)).slice(0, limit);
-  return msgs;
+  return listMailboxes(r, limit, [mailbox], query);
 }
 
 /** 계정의 폴더(메일함) 목록 — 스팸 제외. */

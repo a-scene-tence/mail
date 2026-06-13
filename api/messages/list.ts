@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import type { MailMessage } from '../../lib/providers/types.js';
 import { readSessionId } from '../../lib/server/session.js';
 import { resolveAccounts } from '../../lib/server/accounts.js';
-import { listMailbox } from '../../lib/server/mailbox.js';
+import { listMailboxes } from '../../lib/server/mailbox.js';
 
 // GET /api/messages/list?accountId=&limit=
 // 세션의 (전체 또는 특정) 계정에서 INBOX 목록을 모아 최신순 반환.
@@ -24,17 +24,24 @@ export default async function handler(
   const accountId =
     typeof req.query.accountId === 'string' ? req.query.accountId : undefined;
   const limit = Math.min(Number(req.query.limit) || 20, 50);
-  const mailbox =
+  const mailboxParam =
     typeof req.query.mailbox === 'string' && req.query.mailbox
       ? req.query.mailbox
       : 'inbox';
+  // 콤마 분리 → 다폴더 집계. 빈 값이면 받은편지함.
+  const folderIds = mailboxParam
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   const query = typeof req.query.q === 'string' ? req.query.q : undefined;
 
   try {
     const accounts = await resolveAccounts(sessionId, accountId);
     const perAccount = await Promise.all(
       accounts.map((r) =>
-        listMailbox(r, limit, mailbox, query).catch(() => [] as MailMessage[]),
+        listMailboxes(r, limit, folderIds, query).catch(
+          () => [] as MailMessage[],
+        ),
       ),
     );
     const messages: MailMessage[] = perAccount

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   keepPreviousData,
@@ -18,7 +18,7 @@ import { getProvider } from '@/lib/providers/registry';
 import { MailListItem } from '@/components/MailListItem';
 import { Label } from '@/components/ui/Label';
 
-type Ref = { accountId: string; id: string };
+type Ref = { accountId: string; id: string; folder?: string };
 
 const keyOf = (m: MailMessage) => `${m.accountId}:${m.id}`;
 
@@ -31,43 +31,72 @@ export default function MailPage() {
   });
   const accounts = accountsQ.data ?? [];
 
+  // 전체계정 모드의 받은/보낸 탭.
   const [mailbox, setMailbox] = useState<Mailbox>('inbox');
   // 계정 필터 — undefined=전체, 아니면 account.id.
   const [accountId, setAccountId] = useState<string | undefined>(undefined);
+  // 단일 계정 모드에서 합쳐 볼 폴더 id 집합.
+  const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
   // 제출된 검색어(입력 중 값과 분리해 Enter 시에만 서버 조회).
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
 
-  const messagesQ = useQuery({
-    queryKey: ['messages', accountId ?? 'all', mailbox, query],
-    queryFn: () =>
-      mailApi.listMessages({
-        limit: 30,
-        mailbox,
-        accountId,
-        query: query || undefined,
-      }),
-    placeholderData: keepPreviousData,
-    retry: false,
-  });
+  const isSingleAccount = !!accountId;
 
   // 단일 계정 선택 시에만 그 계정의 폴더 목록을 불러온다.
   const foldersQ = useQuery({
     queryKey: ['folders', accountId],
     queryFn: () => listFolders(accountId as string),
-    enabled: !!accountId,
+    enabled: isSingleAccount,
     retry: false,
   });
-  // 받은/보낸 외 '기타 폴더'만 드롭다운에 노출(스팸은 서버에서 이미 제외).
-  const otherFolders = (foldersQ.data ?? []).filter(
-    (f) => f.kind !== 'inbox' && f.kind !== 'sent',
-  );
-  const folderName =
-    mailbox === 'inbox'
-      ? '받은편지함'
-      : mailbox === 'sent'
-        ? '보낸편지함'
-        : ((foldersQ.data ?? []).find((f) => f.id === mailbox)?.name ?? '폴더');
+  const folders = foldersQ.data ?? [];
+
+  // 계정 전환 또는 폴더 목록 도착 시 기본 선택을 받은편지함으로 초기화.
+  useEffect(() => {
+    if (!isSingleAccount) {
+      setSelectedFolders([]);
+      return;
+    }
+    if (folders.length === 0) return;
+    const inbox = folders.find((f) => f.kind === 'inbox') ?? folders[0];
+    setSelectedFolders([inbox.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, folders.length]);
+
+  // 단일 계정이면 선택 폴더 합산, 아니면 받은/보낸 탭.
+  const effectiveMailbox = isSingleAccount
+    ? selectedFolders.join(',')
+    : mailbox;
+  const messagesEnabled = !isSingleAccount || selectedFolders.length > 0;
+
+  const messagesQ = useQuery({
+    queryKey: ['messages', accountId ?? 'all', effectiveMailbox, query],
+    queryFn: () =>
+      mailApi.listMessages({
+        limit: 30,
+        mailbox: effectiveMailbox || 'inbox',
+        accountId,
+        query: query || undefined,
+      }),
+    enabled: messagesEnabled,
+    placeholderData: keepPreviousData,
+    retry: false,
+  });
+
+  const allFoldersSelected =
+    folders.length > 0 && selectedFolders.length === folders.length;
+  const folderTitle = !isSingleAccount
+    ? mailbox === 'sent'
+      ? '보낸편지함'
+      : '받은편지함'
+    : selectedFolders.length === 0
+      ? '폴더 선택'
+      : allFoldersSelected
+        ? '전체 폴더'
+        : selectedFolders.length === 1
+          ? (folders.find((f) => f.id === selectedFolders[0])?.name ?? '폴더')
+          : `${selectedFolders.length}개 폴더`;
 
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Map<string, Ref>>(new Map());
@@ -105,6 +134,7 @@ export default function MailPage() {
     touchRef.current = null;
     if (!s) return;
     const t = e.changedTouches[0];
+    if (isSingleAccount) return; // 단일 계정은 폴더 패널로 전환.
     const dx = t.clientX - s.x;
     const dy = t.clientY - s.y;
     // 가로 이동이 충분하고 세로보다 우세할 때만 탭 전환.
@@ -139,12 +169,21 @@ export default function MailPage() {
   function switchAccount(id: string | undefined) {
     if (id === accountId) return;
     setAccountId(id);
-    setMailbox('inbox'); // 폴더는 계정별이라 계정 전환 시 받은편지함으로.
+    setMailbox('inbox'); // 전체계정 탭 기본값.
+    resetSelect();
+    // selectedFolders는 foldersQ 도착 시 useEffect가 초기화.
+  }
+
+  function toggleFolder(id: string) {
+    setSelectedFolders((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
     resetSelect();
   }
 
-  function selectFolder(id: string) {
-    setMailbox(id || 'inbox');
+  function toggleAllFolders() {
+    const allIds = folders.map((f) => f.id);
+    setSelectedFolders((prev) => (prev.length === allIds.length ? [] : allIds));
     resetSelect();
   }
 
@@ -181,7 +220,7 @@ export default function MailPage() {
     setSelected((prev) => {
       const next = new Map(prev);
       if (next.has(k)) next.delete(k);
-      else next.set(k, { accountId: m.accountId, id: m.id });
+      else next.set(k, { accountId: m.accountId, id: m.id, folder: m.folder });
       return next;
     });
   }
@@ -194,7 +233,9 @@ export default function MailPage() {
     setActionErr(null);
     const refs = [...selected.values()];
     const results = await Promise.allSettled(
-      refs.map((r) => mailApi.deleteMessage(r.accountId, r.id, mailbox)),
+      refs.map((r) =>
+        mailApi.deleteMessage(r.accountId, r.id, r.folder ?? (effectiveMailbox || 'inbox')),
+      ),
     );
     await queryClient.invalidateQueries({ queryKey: ['messages'] });
     const failed = results.filter((r) => r.status === 'rejected').length;
@@ -216,9 +257,10 @@ export default function MailPage() {
 
   function composeHref(mode: 'reply' | 'forward'): string {
     const r = [...selected.values()][0];
+    const box = r.folder ?? (effectiveMailbox || 'inbox');
     return `/compose/?mode=${mode}&accountId=${encodeURIComponent(
       r.accountId,
-    )}&srcId=${encodeURIComponent(r.id)}&mailbox=${mailbox}`;
+    )}&srcId=${encodeURIComponent(r.id)}&mailbox=${encodeURIComponent(box)}`;
   }
 
   const count = selected.size;
@@ -248,9 +290,13 @@ export default function MailPage() {
       <header className="mb-6 mt-6 flex items-end justify-between">
         <div>
           <Label>
-            {mailbox === 'inbox' ? 'Inbox' : mailbox === 'sent' ? 'Sent' : 'Folder'}
+            {isSingleAccount
+              ? 'Folders'
+              : mailbox === 'sent'
+                ? 'Sent'
+                : 'Inbox'}
           </Label>
-          <h1 className="display mt-3">{folderName}</h1>
+          <h1 className="display mt-3">{folderTitle}</h1>
         </div>
         <div className="flex items-center gap-5">
           {messages.length > 0 &&
@@ -275,22 +321,24 @@ export default function MailPage() {
         </div>
       </header>
 
-      <nav className="mb-8 flex gap-6 border-b border-hairline">
-        {(['inbox', 'sent'] as const).map((b) => (
-          <button
-            key={b}
-            type="button"
-            onClick={() => switchBox(b)}
-            className={`-mb-px border-b-2 pb-3 text-sm tracking-tight transition-colors ${
-              mailbox === b
-                ? 'border-ink text-ink'
-                : 'border-transparent text-gray hover:text-ink'
-            }`}
-          >
-            {b === 'inbox' ? '받은편지함' : '보낸편지함'}
-          </button>
-        ))}
-      </nav>
+      {!isSingleAccount && (
+        <nav className="mb-8 flex gap-6 border-b border-hairline">
+          {(['inbox', 'sent'] as const).map((b) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => switchBox(b)}
+              className={`-mb-px border-b-2 pb-3 text-sm tracking-tight transition-colors ${
+                mailbox === b
+                  ? 'border-ink text-ink'
+                  : 'border-transparent text-gray hover:text-ink'
+              }`}
+            >
+              {b === 'inbox' ? '받은편지함' : '보낸편지함'}
+            </button>
+          ))}
+        </nav>
+      )}
 
       {accountTabs.length > 1 && (
         <div className="mb-6 flex flex-wrap gap-2">
@@ -310,25 +358,29 @@ export default function MailPage() {
         </div>
       )}
 
-      {accountId && otherFolders.length > 0 && (
-        <div className="mb-6">
-          <label className="flex items-center gap-3 border-b border-hairline py-1 focus-within:border-ink">
-            <span className="eyebrow shrink-0">기타 폴더</span>
-            <select
-              value={
-                mailbox === 'inbox' || mailbox === 'sent' ? '' : mailbox
-              }
-              onChange={(e) => selectFolder(e.target.value)}
-              className="w-full bg-transparent py-1.5 text-sm text-ink outline-none"
-            >
-              <option value="">받은편지함/보낸편지함</option>
-              {otherFolders.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
+      {isSingleAccount && (
+        <div className="mb-6 border-b border-hairline pb-4">
+          {foldersQ.isLoading ? (
+            <p className="py-2 text-sm text-gray">폴더 불러오는 중…</p>
+          ) : folders.length === 0 ? (
+            <p className="py-2 text-sm text-gray">폴더가 없습니다.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <FolderChip
+                label="전체 폴더"
+                active={allFoldersSelected}
+                onClick={toggleAllFolders}
+              />
+              {folders.map((f) => (
+                <FolderChip
+                  key={f.id}
+                  label={f.name}
+                  active={selectedFolders.includes(f.id)}
+                  onClick={() => toggleFolder(f.id)}
+                />
               ))}
-            </select>
-          </label>
+            </div>
+          )}
         </div>
       )}
 
@@ -399,7 +451,13 @@ export default function MailPage() {
       )}
       {actionErr && <p className="mb-4 text-sm text-ink">{actionErr}</p>}
 
-      {loading ? (
+      {isSingleAccount && selectedFolders.length === 0 ? (
+        foldersQ.isLoading ? (
+          <Skeleton />
+        ) : (
+          <Notice text="표시할 폴더를 선택하세요." cta={false} />
+        )
+      ) : loading ? (
         <Skeleton />
       ) : messagesQ.isError ? (
         <Notice
@@ -425,7 +483,7 @@ export default function MailPage() {
           text={
             query
               ? `‘${query}’에 대한 검색결과가 없습니다.`
-              : `${folderName}에 메일이 없습니다.`
+              : `${folderTitle}에 메일이 없습니다.`
           }
           cta={false}
         />
@@ -514,6 +572,33 @@ function AccountChip({
           : 'border-hairline text-gray hover:text-ink'
       }`}
     >
+      {label}
+    </button>
+  );
+}
+
+// 폴더 다중 선택 칩 — 체크 상태를 체크표시로 표현.
+function FolderChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-full border px-3 py-1 text-xs tracking-tight transition-colors ${
+        active
+          ? 'border-ink bg-ink text-paper'
+          : 'border-hairline text-gray hover:text-ink'
+      }`}
+    >
+      {active ? '✓ ' : ''}
       {label}
     </button>
   );

@@ -67,6 +67,8 @@ export interface MailMessage {
   threadId?: string;
   /** 첨부파일 메타데이터 — getMessage에서만 채워짐 (내용은 별도 다운로드) */
   attachments?: MailAttachment[];
+  /** 이 메시지를 가져온 폴더 식별자 — 다폴더 집계 시 열람/삭제를 정확한 폴더로 */
+  folder?: string;
 }
 
 export interface MailDraft {
