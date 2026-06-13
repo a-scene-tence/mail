@@ -57,3 +57,13 @@
     @apply border-0 border-t border-hairline;
   }
 }
+
+/* 전역 로딩 상단 바 — 인디터미닛 슬라이드. */
+@keyframes loadingbar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}

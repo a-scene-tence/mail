@@ -139,7 +139,7 @@ export default function MailPage() {
     queryKey: ['messages', accountId ?? 'all', effectiveMailbox, query],
     queryFn: () =>
       mailApi.listMessages({
-        limit: 30,
+        limit: 20,
         mailbox: effectiveMailbox || 'inbox',
         accountId,
         query: query || undefined,
@@ -246,7 +246,7 @@ export default function MailPage() {
       queryClient.prefetchQuery({
         queryKey: ['messages', accountId ?? 'all', next, ''],
         queryFn: () =>
-          mailApi.listMessages({ limit: 30, mailbox: next, accountId }),
+          mailApi.listMessages({ limit: 20, mailbox: next, accountId }),
       });
     }
   }, [

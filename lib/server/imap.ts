@@ -169,6 +169,79 @@ export async function listImap(
   }
 }
 
+/** 한 IMAP 연결에서 특정 폴더의 메타 목록을 읽어 folder 태깅까지 마친다. */
+async function fetchImapFolder(
+  client: ImapFlow,
+  accountId: string,
+  limit: number,
+  folder: Mailbox,
+): Promise<MailMessage[]> {
+  const path = await resolveMailbox(client, folder);
+  if (!path) return [];
+  const lock = await client.getMailboxLock(path);
+  try {
+    const total =
+      typeof client.mailbox === 'object' && client.mailbox
+        ? (client.mailbox as { exists: number }).exists
+        : 0;
+    if (!total) return [];
+    const start = Math.max(1, total - limit + 1);
+    const out: MailMessage[] = [];
+    for await (const msg of client.fetch(`${start}:*`, {
+      envelope: true,
+      flags: true,
+      internalDate: true,
+    })) {
+      const env = msg.envelope;
+      out.push({
+        id: String(msg.uid),
+        accountId,
+        from: env?.from?.[0]
+          ? env.from[0].name || env.from[0].address || ''
+          : '',
+        to: (env?.to ?? []).map((t) => t.address ?? '').filter(Boolean),
+        subject: env?.subject ?? '',
+        snippet: '',
+        date: toIso(env?.date ?? msg.internalDate),
+        unread: !msg.flags?.has('\\Seen'),
+        folder,
+      });
+    }
+    return out.reverse(); // 최신순
+  } finally {
+    lock.release();
+  }
+}
+
+/**
+ * 여러 폴더를 단일 연결로 순회해 합산(폴더마다 새 TLS 핸드셰이크 제거).
+ * 각 메시지는 출처 `folder`로 태깅된다. 폴더 단위 실패는 건너뛴다.
+ */
+export async function listImapMany(
+  accountId: string,
+  address: string,
+  password: string,
+  cfg: ImapCfg,
+  limit: number,
+  folderIds: string[],
+): Promise<MailMessage[]> {
+  const client = makeClient(address, password, cfg);
+  await client.connect();
+  try {
+    const out: MailMessage[] = [];
+    for (const fid of folderIds) {
+      try {
+        out.push(...(await fetchImapFolder(client, accountId, limit, fid)));
+      } catch {
+        /* 한 폴더 실패가 전체를 깨뜨리지 않도록 무시 */
+      }
+    }
+    return out;
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
+}
+
 /** 단일 메시지 (본문 포함). id = UID 문자열. */
 export async function getImap(
   accountId: string,

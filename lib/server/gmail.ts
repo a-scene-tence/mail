@@ -122,6 +122,66 @@ function toMailMessage(
   return base;
 }
 
+const META_QUERY =
+  'format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject';
+
+// Gmail 배치 엔드포인트 — 여러 메시지 메타데이터를 multipart/mixed 1요청으로 묶는다.
+const BATCH_URL = 'https://gmail.googleapis.com/batch/gmail/v1';
+
+/** 배치 응답의 한 섹션에서 내부 HTTP 2xx의 JSON 본문을 추출. */
+function gmailBatchSection(section: string): GmailMessage | null {
+  const sep = section.includes('\r\n\r\n') ? '\r\n\r\n' : '\n\n';
+  const segs = section.split(sep);
+  // segs[0]=외부 파트 헤더, segs[1]=내부 HTTP 상태/헤더, segs[2..]=본문(JSON)
+  if (segs.length < 3) return null;
+  const statusLine = segs[1].trimStart().split(/\r?\n/)[0] ?? '';
+  if (!/^HTTP\/\d\.\d\s+2\d\d/.test(statusLine)) return null;
+  try {
+    return JSON.parse(segs.slice(2).join(sep).trim()) as GmailMessage;
+  } catch {
+    return null;
+  }
+}
+
+/** N개 메시지 메타데이터를 배치 1요청으로 조회. 실패 시 throw(호출부가 폴백). */
+async function gmailMetaBatch(
+  accessToken: string,
+  ids: string[],
+): Promise<GmailMessage[]> {
+  const boundary = `batch_${Math.random().toString(36).slice(2)}`;
+  const body =
+    ids
+      .map(
+        (id) =>
+          `--${boundary}\r\n` +
+          'Content-Type: application/http\r\n\r\n' +
+          `GET /gmail/v1/users/me/messages/${id}?${META_QUERY}\r\n\r\n`,
+      )
+      .join('') + `--${boundary}--`;
+  const res = await fetch(BATCH_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': `multipart/mixed; boundary=${boundary}`,
+    },
+    body,
+  });
+  if (!res.ok) throw new Error(`Gmail batch 실패: ${res.status}`);
+  const ct = res.headers.get('content-type') ?? '';
+  const m = ct.match(/boundary=([^;]+)/i);
+  if (!m) throw new Error('Gmail batch: 응답 boundary 없음');
+  const respBoundary = m[1].replace(/^"|"$/g, '');
+  const text = await res.text();
+  const out: GmailMessage[] = [];
+  for (const section of text.split(`--${respBoundary}`)) {
+    const s = section.trim();
+    if (!s || s === '--') continue;
+    const msg = gmailBatchSection(section);
+    if (msg && msg.id) out.push(msg);
+  }
+  return out;
+}
+
 /** 메일함 목록 (메타데이터). label은 임의 라벨 ID(기본 INBOX). */
 export async function listGmail(
   accountId: string,
@@ -136,16 +196,24 @@ export async function listGmail(
       label,
     )}&includeSpamTrash=true`,
   );
-  const ids = list.messages ?? [];
-  const metaHeaders = '&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject';
+  const ids = (list.messages ?? []).map((x) => x.id);
+  if (ids.length === 0) return [];
+
+  // 1) 배치 1요청으로 메타 수집(N+1 라운드트립 제거).
+  try {
+    const metas = await gmailMetaBatch(accessToken, ids);
+    if (metas.length > 0) {
+      return metas.map((m) => toMailMessage(accountId, m, false));
+    }
+  } catch {
+    /* 배치 실패 → 아래 폴백 */
+  }
+
+  // 2) 폴백: id별 메타 조회(Promise.all). 단일 실패는 무시.
   const messages = await Promise.all(
-    ids.map((x) =>
-      gget<GmailMessage>(
-        accessToken,
-        `/messages/${x.id}?format=metadata${metaHeaders}`,
-      )
+    ids.map((id) =>
+      gget<GmailMessage>(accessToken, `/messages/${id}?${META_QUERY}`)
         .then((m) => toMailMessage(accountId, m, false))
-        // 단일 메시지 조회 실패가 전체 목록을 깨뜨리지 않도록 무시.
         .catch(() => null),
     ),
   );
