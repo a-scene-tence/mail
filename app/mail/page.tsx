@@ -223,8 +223,8 @@ export default function MailPage() {
   function switchAccount(id: string | undefined) {
     if (id === accountId) return;
     setAccountId(id);
-    setCategory('inbox');
     resetSelect();
+    // 대분류는 유지(보낸/휴지통도 계정별로 분리 열람).
     // visible/selectedFolders는 foldersQ 도착 시 useEffect가 초기화.
   }
 
@@ -372,27 +372,9 @@ export default function MailPage() {
           </Label>
           <h1 className="display mt-3">{folderTitle}</h1>
         </div>
-        <div className="flex items-center gap-5">
-          {messages.length > 0 &&
-            (selectMode ? (
-              <button type="button" onClick={resetSelect} className="eyebrow hover:text-ink">
-                취소
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setSelectMode(true)}
-                className="eyebrow hover:text-ink"
-              >
-                선택
-              </button>
-            ))}
-          {!selectMode && (
-            <Link href="/compose/" className="eyebrow">
-              작성 →
-            </Link>
-          )}
-        </div>
+        <Link href="/compose/" className="eyebrow">
+          작성 →
+        </Link>
       </header>
 
       <nav className="mb-6 flex gap-6 border-b border-hairline">
@@ -526,39 +508,58 @@ export default function MailPage() {
         </form>
       )}
 
-      {selectMode && (
-        <div className="mb-2 flex items-center justify-between border-t border-ink py-3">
-          <span className="text-sm text-gray">{count}개 선택</span>
-          <div className="flex items-center gap-5">
-            <Link
-              href={count === 1 ? composeHref('reply') : '#'}
-              aria-disabled={count !== 1}
-              className={`eyebrow ${
-                count === 1 ? 'hover:text-ink' : 'pointer-events-none opacity-40'
-              }`}
-            >
-              회신
-            </Link>
-            <Link
-              href={count === 1 ? composeHref('forward') : '#'}
-              aria-disabled={count !== 1}
-              className={`eyebrow ${
-                count === 1 ? 'hover:text-ink' : 'pointer-events-none opacity-40'
-              }`}
-            >
-              전달
-            </Link>
+      {/* 목록 상단 액션 툴바 — 평소엔 '선택', 선택 모드엔 회신/전달/삭제/취소. */}
+      {messages.length > 0 &&
+        (selectMode ? (
+          <div className="mb-2 flex items-center justify-between border-t border-ink py-3">
+            <span className="text-sm text-gray">{count}개 선택</span>
+            <div className="flex items-center gap-5">
+              <Link
+                href={count === 1 ? composeHref('reply') : '#'}
+                aria-disabled={count !== 1}
+                className={`eyebrow ${
+                  count === 1 ? 'hover:text-ink' : 'pointer-events-none opacity-40'
+                }`}
+              >
+                회신
+              </Link>
+              <Link
+                href={count === 1 ? composeHref('forward') : '#'}
+                aria-disabled={count !== 1}
+                className={`eyebrow ${
+                  count === 1 ? 'hover:text-ink' : 'pointer-events-none opacity-40'
+                }`}
+              >
+                전달
+              </Link>
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={count === 0 || deleting}
+                className="eyebrow hover:text-ink disabled:opacity-40"
+              >
+                {deleting ? '삭제 중…' : '삭제'}
+              </button>
+              <button
+                type="button"
+                onClick={resetSelect}
+                className="eyebrow hover:text-ink"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-2 flex items-center justify-end border-t border-hairline py-3">
             <button
               type="button"
-              onClick={onDelete}
-              disabled={count === 0 || deleting}
-              className="eyebrow hover:text-ink disabled:opacity-40"
+              onClick={() => setSelectMode(true)}
+              className="eyebrow hover:text-ink"
             >
-              {deleting ? '삭제 중…' : '삭제'}
+              선택
             </button>
           </div>
-        </div>
-      )}
+        ))}
       {actionErr && <p className="mb-4 text-sm text-ink">{actionErr}</p>}
 
       {isSingleAccount && selectedFolders.length === 0 ? (
