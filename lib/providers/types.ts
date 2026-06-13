@@ -126,4 +126,10 @@ export interface MailGateway {
     messageId: string,
     mailbox?: Mailbox,
   ): Promise<{ ok: true }>;
+  moveMessage(
+    accountId: string,
+    messageId: string,
+    to: Mailbox,
+    from?: Mailbox,
+  ): Promise<{ ok: true }>;
 }

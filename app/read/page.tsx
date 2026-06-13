@@ -3,7 +3,12 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { mailApi, attachmentUrl, fetchAttachment } from '@/lib/api-client';
+import {
+  mailApi,
+  attachmentUrl,
+  fetchAttachment,
+  listFolders,
+} from '@/lib/api-client';
 import type { Mailbox, MailAttachment } from '@/lib/providers/types';
 import { Label } from '@/components/ui/Label';
 
@@ -33,6 +38,9 @@ export default function ReadPage() {
   const queryClient = useQueryClient();
   const [deleting, setDeleting] = useState(false);
   const [delErr, setDelErr] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [showMove, setShowMove] = useState(false);
+  const [moveErr, setMoveErr] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['message', params?.accountId, params?.id, params?.mailbox],
@@ -41,6 +49,37 @@ export default function ReadPage() {
     enabled: !!params?.accountId && !!params?.id,
     retry: false,
   });
+
+  // 이동 대상 폴더 목록 — 현재 메일이 든 폴더는 제외.
+  const foldersQ = useQuery({
+    queryKey: ['folders', params?.accountId],
+    queryFn: () => listFolders(params!.accountId),
+    enabled: !!params?.accountId && showMove,
+    retry: false,
+  });
+  const moveTargets = (foldersQ.data ?? []).filter(
+    (f) => f.id !== params?.mailbox,
+  );
+
+  async function onMove(destId: string, destName: string) {
+    if (!params || moving) return;
+    if (!window.confirm(`이 메일을 ‘${destName}’(으)로 이동할까요?`)) return;
+    setMoving(true);
+    setMoveErr(false);
+    try {
+      await mailApi.moveMessage(
+        params.accountId,
+        params.id,
+        destId,
+        params.mailbox,
+      );
+      await queryClient.invalidateQueries({ queryKey: ['messages'] });
+      window.location.href = '/mail/';
+    } catch {
+      setMoveErr(true);
+      setMoving(false);
+    }
+  }
 
   async function onDelete() {
     if (!params || deleting) return;
@@ -120,6 +159,14 @@ export default function ReadPage() {
             </Link>
             <button
               type="button"
+              onClick={() => setShowMove((v) => !v)}
+              disabled={moving}
+              className="eyebrow hover:text-ink disabled:opacity-50"
+            >
+              {moving ? '이동 중…' : showMove ? '이동 닫기' : '이동'}
+            </button>
+            <button
+              type="button"
               onClick={onDelete}
               disabled={deleting}
               className="eyebrow hover:text-ink disabled:opacity-50"
@@ -127,9 +174,39 @@ export default function ReadPage() {
               {deleting ? '삭제 중…' : '삭제'}
             </button>
           </div>
+          {showMove && (
+            <div className="mt-4 border-t border-hairline pt-4">
+              {foldersQ.isLoading ? (
+                <p className="text-sm text-gray">폴더 불러오는 중…</p>
+              ) : moveTargets.length === 0 ? (
+                <p className="text-sm text-gray">이동할 폴더가 없습니다.</p>
+              ) : (
+                <>
+                  <p className="mb-3 text-xs text-gray">이동할 폴더를 선택하세요.</p>
+                  <div className="flex flex-wrap gap-2">
+                    {moveTargets.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => onMove(f.id, f.name)}
+                        className="rounded-full border border-hairline px-3 py-1 text-xs tracking-tight text-gray transition-colors hover:text-ink"
+                      >
+                        {f.name}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           {delErr && (
             <p className="mt-3 text-sm text-ink">
               삭제에 실패했습니다. 다시 시도해 주세요.
+            </p>
+          )}
+          {moveErr && (
+            <p className="mt-3 text-sm text-ink">
+              이동에 실패했습니다. 다시 시도해 주세요.
             </p>
           )}
 

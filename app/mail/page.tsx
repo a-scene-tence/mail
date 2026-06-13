@@ -160,6 +160,8 @@ export default function MailPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Map<string, Ref>>(new Map());
   const [deleting, setDeleting] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [showMoveTo, setShowMoveTo] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
 
   // 계정 관리 패널(현재 로그인 상태 / 연결 해제 / 로그인).
@@ -209,6 +211,7 @@ export default function MailPage() {
   function resetSelect() {
     setSelectMode(false);
     setSelected(new Map());
+    setShowMoveTo(false);
     setActionErr(null);
   }
 
@@ -358,6 +361,44 @@ export default function MailPage() {
     setDeleting(false);
     if (failed > 0) {
       setActionErr(`${failed}개 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.`);
+      // 실패분만 남기기 위해 성공한 항목은 선택 해제.
+      setSelected((prev) => {
+        const next = new Map(prev);
+        refs.forEach((r, i) => {
+          if (results[i].status === 'fulfilled') next.delete(`${r.accountId}:${r.id}`);
+        });
+        return next;
+      });
+    } else {
+      resetSelect();
+    }
+  }
+
+  async function onMove(destId: string, destName: string) {
+    if (moving || selected.size === 0) return;
+    if (
+      !window.confirm(`선택한 ${selected.size}개 메일을 ‘${destName}’(으)로 이동할까요?`)
+    )
+      return;
+    setMoving(true);
+    setActionErr(null);
+    const refs = [...selected.values()];
+    const results = await Promise.allSettled(
+      refs.map((r) =>
+        mailApi.moveMessage(
+          r.accountId,
+          r.id,
+          destId,
+          r.folder ?? (effectiveMailbox || 'inbox'),
+        ),
+      ),
+    );
+    await queryClient.invalidateQueries({ queryKey: ['messages'] });
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    setMoving(false);
+    setShowMoveTo(false);
+    if (failed > 0) {
+      setActionErr(`${failed}개 이동에 실패했습니다. 잠시 후 다시 시도해 주세요.`);
       // 실패분만 남기기 위해 성공한 항목은 선택 해제.
       setSelected((prev) => {
         const next = new Map(prev);
@@ -574,6 +615,16 @@ export default function MailPage() {
               >
                 전달
               </Link>
+              {isSingleAccount && folders.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowMoveTo((v) => !v)}
+                  disabled={count === 0 || moving}
+                  className="eyebrow hover:text-ink disabled:opacity-40"
+                >
+                  {moving ? '이동 중…' : showMoveTo ? '이동 닫기' : '이동'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onDelete}
@@ -602,6 +653,22 @@ export default function MailPage() {
             </button>
           </div>
         ))}
+      {/* 이동 대상 폴더 선택 — 선택 모드 + 단일 계정에서만. */}
+      {selectMode && showMoveTo && isSingleAccount && folders.length > 0 && (
+        <div className="mb-4 border-b border-hairline pb-4">
+          <p className="mb-3 text-xs text-gray">이동할 폴더를 선택하세요.</p>
+          <div className="flex flex-wrap gap-2">
+            {folders.map((f) => (
+              <FolderChip
+                key={f.id}
+                label={f.name}
+                active={false}
+                onClick={() => onMove(f.id, f.name)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
       {actionErr && <p className="mb-4 text-sm text-ink">{actionErr}</p>}
 
       {isSingleAccount && selectedFolders.length === 0 ? (

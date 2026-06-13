@@ -12,6 +12,7 @@ import {
   getGmail,
   sendGmail,
   trashGmail,
+  moveGmail,
   getGmailAttachment,
   listGmailLabels,
 } from './gmail.js';
@@ -19,6 +20,7 @@ import {
   listImap,
   getImap,
   trashImap,
+  moveImap,
   getImapAttachment,
   listImapFolders,
 } from './imap.js';
@@ -201,5 +203,23 @@ export async function deleteMessage(
   }
   if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
   await trashImap(r.account.address, r.secret, p.imap, id, mailbox);
+  return { ok: true };
+}
+
+/** 메일을 다른 폴더로 이동. from=원본 폴더, to=대상 폴더 식별자. */
+export async function moveMessage(
+  r: ResolvedAccount,
+  id: string,
+  from: Mailbox,
+  to: Mailbox,
+): Promise<{ ok: true }> {
+  const p = providerOf(r);
+  if (p.auth === 'oauth') {
+    const token = await accessTokenFromRefresh(r.secret);
+    await moveGmail(token, id, gmailLabel(from), gmailLabel(to));
+    return { ok: true };
+  }
+  if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
+  await moveImap(r.account.address, r.secret, p.imap, id, from, to);
   return { ok: true };
 }

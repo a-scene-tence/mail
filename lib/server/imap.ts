@@ -307,6 +307,37 @@ export async function trashImap(
   }
 }
 
+/**
+ * 메일을 다른 폴더로 이동. 원본 폴더에서 잠그고 대상 폴더로 messageMove.
+ * from/to는 mailbox 식별자(별칭 또는 폴더 path).
+ */
+export async function moveImap(
+  address: string,
+  password: string,
+  cfg: ImapCfg,
+  id: string,
+  from: Mailbox,
+  to: Mailbox,
+): Promise<void> {
+  const client = makeClient(address, password, cfg);
+  await client.connect();
+  try {
+    const srcPath = await resolveMailbox(client, from);
+    const destPath = await resolveMailbox(client, to);
+    if (!srcPath) throw new Error('원본 메일함을 찾을 수 없음');
+    if (!destPath) throw new Error('대상 메일함을 찾을 수 없음');
+    if (srcPath === destPath) return; // 같은 폴더면 이동 불필요.
+    const lock = await client.getMailboxLock(srcPath);
+    try {
+      await client.messageMove(String(Number(id)), destPath, { uid: true });
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
+}
+
 /** 자격증명 검증 — IMAP 연결 시도 후 즉시 로그아웃. 실패 시 throw. */
 export async function verifyImap(
   address: string,

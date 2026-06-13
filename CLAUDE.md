@@ -81,6 +81,13 @@ npm run lint       # next lint
 - `MailMessage.messageId`(RFC Message-ID)·`threadId`, `MailDraft.inReplyTo`/`references`/`threadId` 추가.
 - 죽은 스텁 `lib/providers/gmail.ts` 삭제(`lib/providers/imap.ts`와 동일 사유 — 미사용 + MailGateway 변경 동기화 부담).
 
+## M10 — 폴더 이동(메일 이동) (2026-06-13 추가)
+
+- 이동 = `mailbox.moveMessage(r, id, from, to)` 디스패치 → Gmail `moveGmail`(`/messages/{id}/modify`로 대상 라벨 추가 + 원본 라벨 제거, `gmail.modify` 스코프 — 삭제와 동일 스코프라 추가 재동의 불필요), IMAP `moveImap`(원본 폴더 lock 후 `messageMove`, from/to 모두 `resolveMailbox`로 경로 해석, 같은 폴더면 no-op).
+- 신규 `api/messages/move.ts`(body `{accountId,id,from,to}`, `delete.ts`와 동형). `mailApi.moveMessage(accountId,id,to,from?)` + `MailGateway` 인터페이스 확장.
+- 이동은 **단일 계정에서만** 노출(폴더 식별자가 제공자별로 달라 전체계정 합산 뷰에선 대상 모호). `app/mail/page.tsx` 선택 모드 툴바에 '이동' 버튼 → 폴더 칩 피커(계정 폴더 전체) → 일괄 이동(`Promise.allSettled`, 실패분만 선택 유지 — 삭제 패턴 재사용). `app/read/page.tsx`도 읽기 화면 액션바에 '이동'(폴더 피커는 현재 폴더 제외, `showMove`일 때만 `listFolders` 조회).
+- 각 메시지의 출처 폴더는 `MailMessage.folder`(M9에서 도입)를 from으로 사용해 정확한 폴더에서 이동.
+
 ## 변경 이력
 - 2026-06-11: 초안 작성(규칙·제약·오류 로그 틀).
 - 2026-06-11: M2 — Gmail OAuth 실연동(start/callback), Gmail REST 목록/읽기, AES-256-GCM 자격증명 암호화, 세션 쿠키(httpOnly), 저장소 추상화(memory/KV). 오류 로그 1건 추가.
@@ -93,6 +100,7 @@ npm run lint       # next lint
 - 2026-06-12: M4.1 — 받은편지함 선택 모드(다중 선택 일괄 삭제, 단일 선택 회신/전달). 프론트만 변경(`app/mail/page.tsx`·`components/MailListItem.tsx`), 기존 `mailApi.deleteMessage`·`/compose` 프리필 재사용.
 - 2026-06-12: IMAP 로그인 안내/진단 개선 — 제공자 레지스트리에 `imapHelp`(설정 단계·앱 비밀번호·해외 로그인 차단 주의) 추가해 로그인 화면에 노출. `/api/auth/imap/login`이 실패 `reason`(auth/connect)+`detail`(서버 응답) 반환, `ImapLoginError`로 프론트에 구체 사유 표시.
 - 2026-06-12: 네이버 IMAP 안내 정정 — IMAP/POP3 설정은 **PC 웹 전용**(모바일 환경설정엔 없음), **2025-06-24부터 2단계 인증+앱 비밀번호 필수**(계정 비밀번호 불가). 레지스트리 `imapHelp` 문구 갱신.
+- 2026-06-13: M10 — 폴더 이동. `moveMessage` 디스패처(Gmail modify 라벨 교체 / IMAP messageMove), `api/messages/move`, `mailApi.moveMessage`. 단일 계정 한정 — 받은편지함 선택 모드 툴바 '이동' 버튼 + 폴더 칩 피커(`app/mail/page.tsx`), 읽기 화면 '이동' 액션(`app/read/page.tsx`). 출처 폴더는 `MailMessage.folder`.
 - 2026-06-13: M9.3 — 폴더 선택은 받은편지함 분류에서만(보낸/휴지통 숨김) + 표시 폴더 체크 설정 부활(받은편지함 한정). 받은편지함 분류 폴더 중 '폴더 설정'으로 칩에 표시할 폴더를 골라 localStorage(`mail:visibleFolders:<accountId>`) 영속, 평소엔 표시 폴더만 칩으로 다중 선택. 보낸/휴지통은 대표 폴더 자동 조회(폴더 UI 없음).
 - 2026-06-13: M9.2 — 대분류(받은편지함/보낸편지함/휴지통) 3탭 + 대분류 내 폴더 다중 선택. `Category`로 폴더 분류(sent/trash 외 모두 받은편지함). 백엔드 `'trash'` 별칭 추가(gmailLabel→TRASH, resolveMailbox→specialUse `\\Trash`)로 전체계정 휴지통 합산 지원. 단일 계정은 대분류 탭 아래 그 분류 폴더를 칩으로 다중 선택(기본=대표 폴더). 좌우 스와이프로 대분류 전환. M9.1 표시폴더 localStorage 설정은 대분류 모델로 대체(제거).
 - 2026-06-13: M9.1 — '전체 폴더' 자동표시 제거, 표시 폴더 설정 추가. 계정별 `visibleFolders`를 localStorage(`mail:visibleFolders:<accountId>`)에 영속(자격증명 아님). '폴더 설정' 토글로 바에 표시할 폴더 선택(기본 받은+보낸), 평소엔 표시 폴더만 칩으로 노출하고 그중 다중 선택해 합산. `app/mail/page.tsx`만 변경.

@@ -163,4 +163,16 @@ export const mailApi: MailGateway = {
       body: JSON.stringify({ accountId, id: messageId, mailbox }),
     });
   },
+
+  async moveMessage(
+    accountId: string,
+    messageId: string,
+    to: Mailbox,
+    from?: Mailbox,
+  ) {
+    return request<{ ok: true }>(`/api/messages/move`, {
+      method: 'POST',
+      body: JSON.stringify({ accountId, id: messageId, to, from }),
+    });
+  },
 };

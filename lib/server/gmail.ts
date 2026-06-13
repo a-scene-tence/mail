@@ -292,3 +292,29 @@ export async function trashGmail(
   });
   if (!res.ok) throw new Error(`Gmail trash 실패: ${res.status}`);
 }
+
+/**
+ * 메일을 다른 폴더(라벨)로 이동 (gmail.modify 스코프 필요).
+ * Gmail은 라벨 모델 → 대상 라벨 추가 + 원본 라벨 제거로 '이동'을 구현.
+ * fromLabel/toLabel은 라벨 ID(INBOX/SENT/TRASH 또는 사용자 라벨 ID).
+ */
+export async function moveGmail(
+  accessToken: string,
+  messageId: string,
+  fromLabel: string,
+  toLabel: string,
+): Promise<void> {
+  const res = await fetch(`${API}/messages/${messageId}/modify`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      addLabelIds: [toLabel],
+      // 원본 라벨이 대상과 같으면 제거하지 않는다(이동 무효).
+      removeLabelIds: fromLabel && fromLabel !== toLabel ? [fromLabel] : [],
+    }),
+  });
+  if (!res.ok) throw new Error(`Gmail move 실패: ${res.status}`);
+}
