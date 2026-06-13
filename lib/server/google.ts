@@ -51,14 +51,29 @@ export async function exchangeCode(code: string): Promise<GoogleTokens> {
   };
 }
 
-/** refresh token으로 유효한 access token 발급(자동 갱신). */
+// 액세스 토큰 메모리 캐시(워밍된 서버리스 인스턴스 내). refresh token → {토큰, 만료ms}.
+// 영속 저장·로그 금지(자격증명 보안 규칙). 만료 전엔 Google 왕복(~250–500ms)을 건너뛴다.
+const tokenCache = new Map<string, { token: string; exp: number }>();
+const TOKEN_SKEW_MS = 60_000; // 만료 1분 전엔 미리 갱신.
+const TOKEN_FALLBACK_TTL_MS = 50 * 60_000; // expiry_date 미제공 시 보수적 50분.
+
+/** refresh token으로 유효한 access token 발급(메모리 캐시 + 자동 갱신). */
 export async function accessTokenFromRefresh(
   refreshToken: string,
 ): Promise<string> {
+  const cached = tokenCache.get(refreshToken);
+  if (cached && cached.exp - TOKEN_SKEW_MS > Date.now()) {
+    return cached.token;
+  }
   const client = oauthClient();
   client.setCredentials({ refresh_token: refreshToken });
-  const { token } = await client.getAccessToken();
+  const resp = await client.getAccessToken();
+  const token = resp.token;
   if (!token) throw new Error('access token 발급 실패');
+  // google-auth-library는 갱신 시 credentials.expiry_date(ms epoch)를 채운다.
+  const exp =
+    client.credentials.expiry_date ?? Date.now() + TOKEN_FALLBACK_TTL_MS;
+  tokenCache.set(refreshToken, { token, exp });
   return token;
 }
 

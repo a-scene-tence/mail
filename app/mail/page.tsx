@@ -342,7 +342,9 @@ export default function MailPage() {
 
   const messages = messagesQ.data ?? [];
   const hasAccount = accounts.length > 0;
-  const loading = accountsQ.isLoading || messagesQ.isLoading;
+  // 목록 스켈레톤은 '표시할 메시지가 전혀 없을 때(pending)'만. 계정 조회 로딩은
+  // 계정 칩에만 영향을 주고, 캐시된 메시지가 있으면 목록을 가리지 않는다.
+  const loading = messagesQ.isLoading;
 
   function toggle(m: MailMessage) {
     const k = keyOf(m);
