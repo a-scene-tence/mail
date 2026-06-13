@@ -6,6 +6,7 @@ import { PROVIDERS } from '@/lib/providers/registry';
 import type { MailProvider } from '@/lib/providers/types';
 import { ProviderCard } from '@/components/ProviderCard';
 import { startGoogleLogin, imapLogin, ImapLoginError } from '@/lib/api-client';
+import { BrandMark } from '@/components/BrandMark';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import { TextField } from '@/components/ui/TextField';
@@ -31,9 +32,12 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
-      <Link href="/" className="eyebrow">
-        ← 뒤로
-      </Link>
+      <div className="flex items-center justify-between">
+        <BrandMark />
+        <Link href="/" className="eyebrow">
+          ← 뒤로
+        </Link>
+      </div>
 
       <header className="mb-12 mt-6">
         <Label>Add Account</Label>

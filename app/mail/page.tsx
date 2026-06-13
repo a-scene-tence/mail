@@ -16,6 +16,7 @@ import {
 import type { MailFolder, MailMessage } from '@/lib/providers/types';
 import { getProvider } from '@/lib/providers/registry';
 import { MailListItem } from '@/components/MailListItem';
+import { BrandMark } from '@/components/BrandMark';
 import { Label } from '@/components/ui/Label';
 
 type Ref = { accountId: string; id: string; folder?: string };
@@ -428,13 +429,16 @@ export default function MailPage() {
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      <button
-        type="button"
-        onClick={() => setShowAccounts((v) => !v)}
-        className="eyebrow hover:text-ink"
-      >
-        계정 {showAccounts ? '닫기' : `· ${accounts.length}개 연결됨`}
-      </button>
+      <div className="flex items-center justify-between">
+        <BrandMark />
+        <button
+          type="button"
+          onClick={() => setShowAccounts((v) => !v)}
+          className="eyebrow hover:text-ink"
+        >
+          계정 {showAccounts ? '닫기' : `· ${accounts.length}개 연결됨`}
+        </button>
+      </div>
 
       {showAccounts && (
         <AccountsPanel

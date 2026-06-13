@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { listAccounts, mailApi } from '@/lib/api-client';
 import type { MailMessage, Mailbox } from '@/lib/providers/types';
+import { BrandMark } from '@/components/BrandMark';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import { TextField } from '@/components/ui/TextField';
@@ -143,9 +144,12 @@ export default function ComposePage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
-      <Link href="/mail/" className="eyebrow">
-        ← 받은편지함
-      </Link>
+      <div className="flex items-center justify-between">
+        <BrandMark />
+        <Link href="/mail/" className="eyebrow">
+          ← 받은편지함
+        </Link>
+      </div>
 
       <header className="mb-10 mt-6">
         <Label>Compose</Label>

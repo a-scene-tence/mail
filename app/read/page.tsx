@@ -10,6 +10,7 @@ import {
   listFolders,
 } from '@/lib/api-client';
 import type { Mailbox, MailAttachment } from '@/lib/providers/types';
+import { BrandMark } from '@/components/BrandMark';
 import { Label } from '@/components/ui/Label';
 
 function formatBytes(n: number): string {
@@ -128,9 +129,12 @@ export default function ReadPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-content px-6 py-16">
-      <Link href="/mail" className="eyebrow">
-        ← {isSent ? '보낸편지함' : '받은편지함'}
-      </Link>
+      <div className="flex items-center justify-between">
+        <BrandMark />
+        <Link href="/mail" className="eyebrow">
+          ← {isSent ? '보낸편지함' : '받은편지함'}
+        </Link>
+      </div>
 
       {isLoading || !params ? (
         <p className="mt-12 text-gray">불러오는 중…</p>
