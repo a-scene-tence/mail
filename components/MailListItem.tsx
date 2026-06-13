@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { useRef } from 'react';
 import type { MailMessage, Mailbox } from '@/lib/providers/types';
 
 function formatDate(iso: string): string {
@@ -15,6 +16,10 @@ interface Props {
   selectMode?: boolean;
   selected?: boolean;
   onToggle?: () => void;
+  /** 길게 누르면(모바일) / 우클릭(데스크톱) 선택 모드 진입 + 이 메일 선택 */
+  onLongPress?: () => void;
+  /** 누르는 순간/hover에 본문 미리 가져오기(읽기 화면 즉시 표시용) */
+  onPrefetch?: () => void;
 }
 
 /** 메일 목록 한 행 — 상대방/제목/스니펫/날짜. 선택 모드면 체크박스. */
@@ -24,7 +29,42 @@ export function MailListItem({
   selectMode,
   selected,
   onToggle,
+  onLongPress,
+  onPrefetch,
 }: Props) {
+  // 길게 누르기(long-press) 상태 — 외부 라이브러리 없이 타이머로 판정.
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const firedRef = useRef(false);
+
+  function clearLongPress() {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+  function onTouchStart(e: React.TouchEvent) {
+    onPrefetch?.();
+    if (!onLongPress) return;
+    const t = e.touches[0];
+    startRef.current = { x: t.clientX, y: t.clientY };
+    firedRef.current = false;
+    clearLongPress();
+    timerRef.current = setTimeout(() => {
+      firedRef.current = true;
+      navigator.vibrate?.(10);
+      onLongPress();
+    }, 500);
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    const s = startRef.current;
+    if (!s) return;
+    const t = e.touches[0];
+    // 10px 이상 움직이면 스크롤/스와이프로 보고 long-press 취소.
+    if (Math.abs(t.clientX - s.x) > 10 || Math.abs(t.clientY - s.y) > 10) {
+      clearLongPress();
+    }
+  }
   // 보낸편지함은 수신자(받는 사람)를, 받은편지함은 발신자를 보여준다.
   const counterpart =
     mailbox === 'sent'
@@ -87,6 +127,24 @@ export function MailListItem({
     <Link
       href={href}
       className="flex gap-4 border-t border-hairline px-1 py-5 transition-colors hover:bg-paper-off"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={clearLongPress}
+      onTouchCancel={clearLongPress}
+      onMouseEnter={onPrefetch}
+      onContextMenu={(e) => {
+        if (onLongPress) {
+          e.preventDefault();
+          onLongPress();
+        }
+      }}
+      onClick={(e) => {
+        // long-press 직후 발생하는 클릭은 읽기 화면 이동을 막는다.
+        if (firedRef.current) {
+          e.preventDefault();
+          firedRef.current = false;
+        }
+      }}
     >
       <span
         aria-hidden

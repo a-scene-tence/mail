@@ -212,6 +212,48 @@ export default function MailPage() {
     setActionErr(null);
   }
 
+  // 길게 누르기: 선택 모드 진입 + 그 메일 자동 선택.
+  function onLongPress(m: MailMessage) {
+    if (selectMode) return;
+    setSelectMode(true);
+    toggle(m);
+  }
+
+  // 누르는 순간/hover에 읽기 화면과 같은 키로 본문을 미리 가져온다(체감 속도).
+  function prefetchMessage(m: MailMessage) {
+    const box = m.folder ?? (effectiveMailbox || 'inbox');
+    queryClient.prefetchQuery({
+      queryKey: ['message', m.accountId, m.id, box],
+      queryFn: () => mailApi.getMessage(m.accountId, m.id, box),
+      staleTime: 60_000,
+    });
+  }
+
+  // 전체 계정 보기에서만 인접 대분류(받은/보낸/휴지통) 목록을 idle에 미리 로드.
+  // 단일 계정은 대분류마다 폴더 조합이 달라 키 추정이 복잡 → 제외.
+  useEffect(() => {
+    if (isSingleAccount || query || !messagesQ.isSuccess) return;
+    const order: Category[] = ['inbox', 'sent', 'trash'];
+    const idx = order.indexOf(category);
+    const neighbors = [order[idx - 1], order[idx + 1]].filter(
+      (c): c is Category => !!c,
+    );
+    for (const next of neighbors) {
+      queryClient.prefetchQuery({
+        queryKey: ['messages', accountId ?? 'all', next, ''],
+        queryFn: () =>
+          mailApi.listMessages({ limit: 30, mailbox: next, accountId }),
+      });
+    }
+  }, [
+    isSingleAccount,
+    query,
+    messagesQ.isSuccess,
+    category,
+    accountId,
+    queryClient,
+  ]);
+
   function switchCategory(cat: Category) {
     if (cat === category) return;
     setCategory(cat);
@@ -592,6 +634,8 @@ export default function MailPage() {
               selectMode={selectMode}
               selected={selected.has(keyOf(m))}
               onToggle={() => toggle(m)}
+              onLongPress={() => onLongPress(m)}
+              onPrefetch={() => prefetchMessage(m)}
             />
           ))}
           <div className="border-t border-hairline" />
