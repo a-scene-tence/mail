@@ -387,33 +387,33 @@ export default function MailPage() {
     });
   }
 
+  // 낙관적 업데이트: 캐시된 모든 목록에서 해당 메시지들을 제거(작업을 즉시 반영하고
+  // 블로킹 콜드 재조회를 없앤다). 영속 캐시도 디바운스로 동기화됨.
+  function removeFromLists(keys: Set<string>) {
+    queryClient.setQueriesData<MailMessage[]>({ queryKey: ['messages'] }, (old) =>
+      old ? old.filter((m) => !keys.has(keyOf(m))) : old,
+    );
+  }
+
   async function onDelete() {
     if (deleting || selected.size === 0) return;
     if (!window.confirm(`선택한 ${selected.size}개 메일을 휴지통으로 이동할까요?`))
       return;
-    setDeleting(true);
-    setActionErr(null);
     const refs = [...selected.values()];
+    // 낙관적: 목록에서 즉시 제거 + 선택 모드 종료. 서버 요청은 백그라운드로.
+    removeFromLists(new Set(refs.map((r) => `${r.accountId}:${r.id}`)));
+    resetSelect();
+    setDeleting(true);
     const results = await Promise.allSettled(
       refs.map((r) =>
         mailApi.deleteMessage(r.accountId, r.id, r.folder ?? (effectiveMailbox || 'inbox')),
       ),
     );
-    await queryClient.invalidateQueries({ queryKey: ['messages'] });
-    const failed = results.filter((r) => r.status === 'rejected').length;
     setDeleting(false);
-    if (failed > 0) {
-      setActionErr(`${failed}개 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.`);
-      // 실패분만 남기기 위해 성공한 항목은 선택 해제.
-      setSelected((prev) => {
-        const next = new Map(prev);
-        refs.forEach((r, i) => {
-          if (results[i].status === 'fulfilled') next.delete(`${r.accountId}:${r.id}`);
-        });
-        return next;
-      });
-    } else {
-      resetSelect();
+    // 실패가 있으면 서버 상태로 되돌려 동기화 + 에러 표시.
+    if (results.some((r) => r.status === 'rejected')) {
+      await queryClient.invalidateQueries({ queryKey: ['messages'] });
+      setActionErr('일부 메일 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.');
     }
   }
 
@@ -423,9 +423,11 @@ export default function MailPage() {
       !window.confirm(`선택한 ${selected.size}개 메일을 ‘${destName}’(으)로 이동할까요?`)
     )
       return;
-    setMoving(true);
-    setActionErr(null);
     const refs = [...selected.values()];
+    // 낙관적: 목록에서 즉시 제거 + 선택 모드 종료. 서버 요청은 백그라운드로.
+    removeFromLists(new Set(refs.map((r) => `${r.accountId}:${r.id}`)));
+    resetSelect();
+    setMoving(true);
     const results = await Promise.allSettled(
       refs.map((r) =>
         mailApi.moveMessage(
@@ -436,22 +438,12 @@ export default function MailPage() {
         ),
       ),
     );
-    await queryClient.invalidateQueries({ queryKey: ['messages'] });
-    const failed = results.filter((r) => r.status === 'rejected').length;
     setMoving(false);
-    setShowMoveTo(false);
-    if (failed > 0) {
-      setActionErr(`${failed}개 이동에 실패했습니다. 잠시 후 다시 시도해 주세요.`);
-      // 실패분만 남기기 위해 성공한 항목은 선택 해제.
-      setSelected((prev) => {
-        const next = new Map(prev);
-        refs.forEach((r, i) => {
-          if (results[i].status === 'fulfilled') next.delete(`${r.accountId}:${r.id}`);
-        });
-        return next;
-      });
-    } else {
-      resetSelect();
+    if (results.some((r) => r.status === 'rejected')) {
+      await queryClient.invalidateQueries({ queryKey: ['messages'] });
+      setActionErr(
+        `일부 메일을 ‘${destName}’(으)로 이동하지 못했습니다. 잠시 후 다시 시도해 주세요.`,
+      );
     }
   }
 

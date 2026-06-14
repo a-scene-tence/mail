@@ -66,23 +66,31 @@ const SPAM_FALLBACKS = [
  * - 'trash' → specialUse '\\Trash' 우선, 없으면 폴백명
  * - 그 외   → mailbox 자체를 폴더 path로 사용
  */
+type ImapBoxes = Awaited<ReturnType<ImapFlow['list']>>;
+
+/** mailbox 별칭(sent/trash)이 폴더 목록(client.list)을 필요로 하는가. */
+function needsList(mailbox: Mailbox): boolean {
+  return mailbox === 'sent' || mailbox === 'trash';
+}
+
 async function resolveMailbox(
   client: ImapFlow,
   mailbox: Mailbox,
+  boxes?: ImapBoxes,
 ): Promise<string | null> {
   if (mailbox === 'inbox') return 'INBOX';
   if (mailbox === 'sent') {
-    const boxes = await client.list();
-    const special = boxes.find((b) => b.specialUse === '\\Sent');
+    const list = boxes ?? (await client.list());
+    const special = list.find((b) => b.specialUse === '\\Sent');
     if (special) return special.path;
-    const named = boxes.find((b) => SENT_FALLBACKS.includes(b.path));
+    const named = list.find((b) => SENT_FALLBACKS.includes(b.path));
     return named ? named.path : null;
   }
   if (mailbox === 'trash') {
-    const boxes = await client.list();
-    const special = boxes.find((b) => b.specialUse === '\\Trash');
+    const list = boxes ?? (await client.list());
+    const special = list.find((b) => b.specialUse === '\\Trash');
     if (special) return special.path;
-    const named = boxes.find((b) => TRASH_FALLBACKS.includes(b.path));
+    const named = list.find((b) => TRASH_FALLBACKS.includes(b.path));
     return named ? named.path : null;
   }
   return mailbox;
@@ -341,8 +349,7 @@ export async function getImapAttachment(
 const TRASH_FALLBACKS = ['Trash', '[Gmail]/Trash', 'Deleted Messages', '휴지통'];
 
 /** 휴지통 폴더 경로 탐색 — specialUse '\\Trash' 우선, 없으면 알려진 이름. */
-async function findTrashPath(client: ImapFlow): Promise<string | null> {
-  const boxes = await client.list();
+function findTrashPath(boxes: ImapBoxes): string | null {
   const special = boxes.find((b) => b.specialUse === '\\Trash');
   if (special) return special.path;
   const named = boxes.find((b) => TRASH_FALLBACKS.includes(b.path));
@@ -360,8 +367,10 @@ export async function trashImap(
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
-    const trashPath = await findTrashPath(client);
-    const srcPath = await resolveMailbox(client, mailbox);
+    // 휴지통 탐색에 폴더 목록이 반드시 필요하므로 한 번만 받아 원본 해석에도 재사용.
+    const boxes = await client.list();
+    const trashPath = findTrashPath(boxes);
+    const srcPath = await resolveMailbox(client, mailbox, boxes);
     if (!srcPath) throw new Error('원본 메일함을 찾을 수 없음');
     const lock = await client.getMailboxLock(srcPath);
     try {
@@ -395,8 +404,11 @@ export async function moveImap(
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
-    const srcPath = await resolveMailbox(client, from);
-    const destPath = await resolveMailbox(client, to);
+    // from/to 중 별칭(sent/trash)이 있을 때만 폴더 목록을 1회 받아 둘 다에 재사용.
+    const boxes =
+      needsList(from) || needsList(to) ? await client.list() : undefined;
+    const srcPath = await resolveMailbox(client, from, boxes);
+    const destPath = await resolveMailbox(client, to, boxes);
     if (!srcPath) throw new Error('원본 메일함을 찾을 수 없음');
     if (!destPath) throw new Error('대상 메일함을 찾을 수 없음');
     if (srcPath === destPath) return; // 같은 폴더면 이동 불필요.

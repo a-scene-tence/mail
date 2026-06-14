@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   mailApi,
@@ -9,7 +10,7 @@ import {
   fetchAttachment,
   listFolders,
 } from '@/lib/api-client';
-import type { Mailbox, MailAttachment } from '@/lib/providers/types';
+import type { Mailbox, MailAttachment, MailMessage } from '@/lib/providers/types';
 import { BrandMark } from '@/components/BrandMark';
 import { Label } from '@/components/ui/Label';
 
@@ -37,11 +38,10 @@ export default function ReadPage() {
   }, []);
 
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [deleting, setDeleting] = useState(false);
-  const [delErr, setDelErr] = useState(false);
   const [moving, setMoving] = useState(false);
   const [showMove, setShowMove] = useState(false);
-  const [moveErr, setMoveErr] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['message', params?.accountId, params?.id, params?.mailbox],
@@ -62,39 +62,37 @@ export default function ReadPage() {
     (f) => f.id !== params?.mailbox,
   );
 
-  async function onMove(destId: string, destName: string) {
+  // 낙관적 업데이트: 캐시된 모든 목록에서 이 메시지를 즉시 제거.
+  function removeFromLists() {
+    if (!params) return;
+    const key = `${params.accountId}:${params.id}`;
+    queryClient.setQueriesData<MailMessage[]>({ queryKey: ['messages'] }, (old) =>
+      old ? old.filter((m) => `${m.accountId}:${m.id}` !== key) : old,
+    );
+  }
+
+  function onMove(destId: string, destName: string) {
     if (!params || moving) return;
     if (!window.confirm(`이 메일을 ‘${destName}’(으)로 이동할까요?`)) return;
     setMoving(true);
-    setMoveErr(false);
-    try {
-      await mailApi.moveMessage(
-        params.accountId,
-        params.id,
-        destId,
-        params.mailbox,
-      );
-      await queryClient.invalidateQueries({ queryKey: ['messages'] });
-      window.location.href = '/mail/';
-    } catch {
-      setMoveErr(true);
-      setMoving(false);
-    }
+    // 낙관적: 목록에서 제거 후 즉시 복귀(하드 리로드 없이 SPA 네비게이션).
+    removeFromLists();
+    // 서버 요청은 백그라운드. 실패 시 다음 목록 조회에서 동기화되도록 무효화.
+    mailApi
+      .moveMessage(params.accountId, params.id, destId, params.mailbox)
+      .catch(() => queryClient.invalidateQueries({ queryKey: ['messages'] }));
+    router.push('/mail/');
   }
 
-  async function onDelete() {
+  function onDelete() {
     if (!params || deleting) return;
     if (!window.confirm('이 메일을 휴지통으로 이동할까요?')) return;
     setDeleting(true);
-    setDelErr(false);
-    try {
-      await mailApi.deleteMessage(params.accountId, params.id, params.mailbox);
-      await queryClient.invalidateQueries({ queryKey: ['messages'] });
-      window.location.href = '/mail/';
-    } catch {
-      setDelErr(true);
-      setDeleting(false);
-    }
+    removeFromLists();
+    mailApi
+      .deleteMessage(params.accountId, params.id, params.mailbox)
+      .catch(() => queryClient.invalidateQueries({ queryKey: ['messages'] }));
+    router.push('/mail/');
   }
 
   const isSent = params?.mailbox === 'sent';
@@ -202,16 +200,6 @@ export default function ReadPage() {
                 </>
               )}
             </div>
-          )}
-          {delErr && (
-            <p className="mt-3 text-sm text-ink">
-              삭제에 실패했습니다. 다시 시도해 주세요.
-            </p>
-          )}
-          {moveErr && (
-            <p className="mt-3 text-sm text-ink">
-              이동에 실패했습니다. 다시 시도해 주세요.
-            </p>
           )}
 
           {data.attachments && data.attachments.length > 0 && (
