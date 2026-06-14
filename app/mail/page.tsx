@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   keepPreviousData,
+  useQueries,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
@@ -94,6 +95,32 @@ export default function MailPage() {
   });
   const folders = foldersQ.data ?? [];
 
+  // 전체뷰(모든 계정) 받은편지함: 계정별 폴더를 골라 합산할 수 있게 모든 계정의 폴더를 불러온다.
+  // 단일 계정 foldersQ와 같은 쿼리키(['folders', id])라 캐시를 공유한다.
+  const isAllInbox = !isSingleAccount && category === 'inbox';
+  const folderQs = useQueries({
+    queries: accounts.map((a) => ({
+      queryKey: ['folders', a.id],
+      queryFn: () => listFolders(a.id),
+      enabled: isAllInbox && accounts.length > 0,
+      retry: false,
+    })),
+  });
+  const accountFolders: Record<string, MailFolder[]> = {};
+  accounts.forEach((a, i) => {
+    accountFolders[a.id] = folderQs[i]?.data ?? [];
+  });
+  // 계정-스코프 복합키 'accountId|folderId' (백엔드가 계정별 폴더로 라우팅).
+  const comp = (aid: string, fid: string) => `${aid}|${fid}`;
+  // 계정별 대표 받은편지함 폴더 복합키 — 전체뷰 inbox의 기본(선택 없음 = 이 집합).
+  const repInboxComposite = accounts.flatMap((a) => {
+    const fs = accountFolders[a.id] ?? [];
+    const inbox =
+      fs.find((f) => f.kind === 'inbox') ??
+      fs.find((f) => folderCategory(f) === 'inbox');
+    return inbox ? [comp(a.id, inbox.id)] : [];
+  });
+
   // 현재 대분류에 속한 폴더들 / 받은편지함 분류 폴더.
   const categoryFolders = folders.filter((f) => folderCategory(f) === category);
   const inboxFolders = folders.filter((f) => folderCategory(f) === 'inbox');
@@ -133,11 +160,18 @@ export default function MailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, folders.length]);
 
-  // 단일 계정이면 대분류 안 선택 폴더 합산, 아니면 대분류 별칭(전체계정 합산).
+  // 단일 계정이면 대분류 안 선택 폴더 합산.
+  // 전체뷰 받은편지함에서 계정별 폴더를 커스텀 선택했으면 복합키(aid|fid) 토큰,
+  // 아니면 대분류 별칭(전체계정 합산, 추가 폴더조회 없이 즉시 로드).
   const effectiveMailbox = isSingleAccount
     ? selectedFolders.join(',')
-    : category;
+    : isAllInbox && selectedFolders.length > 0
+      ? selectedFolders.join(',')
+      : category;
   const messagesEnabled = !isSingleAccount || selectedFolders.length > 0;
+  // 전체뷰 inbox 폴더 칩의 활성 집합 — 선택이 없으면 대표 inbox(별칭과 동일 결과).
+  const allInboxActive =
+    selectedFolders.length > 0 ? selectedFolders : repInboxComposite;
 
   const messagesQ = useQuery({
     queryKey: ['messages', accountId ?? 'all', effectiveMailbox, query, pageSize],
@@ -160,12 +194,15 @@ export default function MailPage() {
 
   const categoryLabel =
     CATEGORIES.find((c) => c.id === category)?.label ?? '받은편지함';
-  const folderTitle =
-    !isSingleAccount || selectedFolders.length <= 1
+  const folderTitle = isSingleAccount
+    ? selectedFolders.length <= 1
       ? categoryLabel
       : selectedFolders.length === visibleInbox.length
         ? `${categoryLabel} 전체`
-        : `${categoryLabel} · ${selectedFolders.length}개`;
+        : `${categoryLabel} · ${selectedFolders.length}개`
+    : isAllInbox && selectedFolders.length > 0
+      ? `${categoryLabel} · ${selectedFolders.length}개`
+      : categoryLabel;
 
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Map<string, Ref>>(new Map());
@@ -273,6 +310,25 @@ export default function MailPage() {
     setShowFolderSettings(false);
     resetSelect();
     if (isSingleAccount) setSelectedFolders(defaultSelection(cat, visibleFolders));
+    // 전체뷰: 대분류 전환 시 폴더 선택 초기화(빈 선택 = 대표 inbox/별칭).
+    else setSelectedFolders([]);
+  }
+
+  // 전체뷰 inbox: 계정별 폴더 복합키 토글(현재 활성 집합을 먼저 구체화 후 토글).
+  function toggleAllAccountFolder(key: string) {
+    setSelectedFolders((prev) => {
+      const base = prev.length > 0 ? prev : repInboxComposite;
+      return base.includes(key)
+        ? base.filter((x) => x !== key)
+        : [...base, key];
+    });
+    resetSelect();
+  }
+
+  // 전체뷰 inbox: 모든 계정 대표 받은편지함으로 복귀(기본).
+  function resetAllInbox() {
+    setSelectedFolders([]);
+    resetSelect();
   }
 
   function switchAccount(id: string | undefined) {
@@ -339,6 +395,28 @@ export default function MailPage() {
       label: (providerCount.get(a.providerId) ?? 0) > 1 ? a.address : label,
     };
   });
+
+  // 전체뷰 받은편지함 폴더 피커 — 계정별로 그 계정의 받은편지함 분류 폴더를 나열.
+  const allInboxGroups = isAllInbox
+    ? accounts
+        .map((a) => {
+          const groupFolders = (accountFolders[a.id] ?? []).filter(
+            (f) => folderCategory(f) === 'inbox',
+          );
+          if (groupFolders.length === 0) return null;
+          const label =
+            (providerCount.get(a.providerId) ?? 0) > 1
+              ? a.address
+              : getProvider(a.providerId)?.label ?? a.providerId;
+          return { id: a.id, label, folders: groupFolders };
+        })
+        .filter(
+          (g): g is { id: string; label: string; folders: MailFolder[] } =>
+            g !== null,
+        )
+    : [];
+  // 고를 폴더가 있을 때만(어떤 계정이 받은편지함 분류 폴더를 2개 이상 가질 때) 피커 노출.
+  const showAllInboxPicker = allInboxGroups.some((g) => g.folders.length > 1);
 
   const messages = messagesQ.data ?? [];
   const hasAccount = accounts.length > 0;
@@ -573,6 +651,43 @@ export default function MailPage() {
             )}
           </div>
         )}
+
+      {/* 전체뷰 받은편지함: 계정별 폴더 선택(계정 그룹으로 나열). */}
+      {isAllInbox && folderQs.some((q) => q.isLoading) && !showAllInboxPicker && (
+        <p className="mb-6 py-1 text-sm text-gray">폴더 불러오는 중…</p>
+      )}
+      {showAllInboxPicker && (
+        <div className="mb-6">
+          <Label>폴더</Label>
+          <div className="mb-3 mt-3 flex flex-wrap gap-2">
+            <FolderChip
+              label="받은편지함 전체"
+              active={selectedFolders.length === 0}
+              onClick={resetAllInbox}
+            />
+          </div>
+          <div className="space-y-3">
+            {allInboxGroups.map((g) => (
+              <div key={g.id}>
+                <p className="mb-2 text-xs text-gray">{g.label}</p>
+                <div className="flex flex-wrap gap-2">
+                  {g.folders.map((f) => {
+                    const key = comp(g.id, f.id);
+                    return (
+                      <FolderChip
+                        key={key}
+                        label={f.name}
+                        active={allInboxActive.includes(key)}
+                        onClick={() => toggleAllAccountFolder(key)}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {hasAccount && (
         <form onSubmit={onSearchSubmit} className="mb-6">

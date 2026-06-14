@@ -98,6 +98,7 @@ npm run lint       # next lint
 - 각 메시지의 출처 폴더는 `MailMessage.folder`(M9에서 도입)를 from으로 사용해 정확한 폴더에서 이동.
 
 ## 변경 이력
+- 2026-06-14: M14 — 전체뷰(모든 계정) 받은편지함에서 **계정별 폴더 선택**. 전체뷰에선 폴더 식별자가 제공자별로 달라 그동안 대표 INBOX만 합산했는데, 폴더 선택을 **계정-스코프 복합키 `accountId|folderId`** 로 표현(accountId에 `:`가 이미 있어 구분자는 `|`)해 백엔드가 계정별로 다른 folderIds를 적용. `api/messages/list.ts`가 `mailbox` 토큰을 글로벌(`fid`)/계정-스코프(`aid|fid`)로 분리, 스코프 지정 계정만 그 폴더로 조회(나머지 skip), 글로벌·단일계정 경로는 기존 그대로(하위호환). `app/mail/page.tsx`: 전체뷰 inbox일 때 `useQueries`로 모든 계정 폴더 로드(단일계정 `['folders',id]` 캐시 공유), 계정 그룹으로 폴더 칩 나열(`계정 · 폴더`), 선택 시에만 복합키 토큰으로 전환(기본 전체뷰는 추가 조회 없이 별칭 즉시 로드). 메시지의 `accountId`+`folder`(plain fid) 식별은 불변이라 읽기/삭제/이동 무영향.
 - 2026-06-11: 초안 작성(규칙·제약·오류 로그 틀).
 - 2026-06-11: M2 — Gmail OAuth 실연동(start/callback), Gmail REST 목록/읽기, AES-256-GCM 자격증명 암호화, 세션 쿠키(httpOnly), 저장소 추상화(memory/KV). 오류 로그 1건 추가.
 - 2026-06-11: M2 검증 준비 — `DEPLOY.md`(Vercel 배포·검증 런북), `/api/health` 핑 엔드포인트 추가.
