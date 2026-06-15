@@ -273,28 +273,38 @@ export default function MailPage() {
     });
   }
 
-  // 전체 계정 보기에서만 인접 대분류(받은/보낸/휴지통) 목록을 idle에 미리 로드.
-  // 단일 계정은 대분류마다 폴더 조합이 달라 키 추정이 복잡 → 제외.
+  // 활성 외 대분류를 미리 받아 둔다(탭 전환 즉시 표시). 실제 목록 쿼리 키와 정확히 일치시킨다
+  // (그래야 전환 시 캐시 hit). 단일계정·전체뷰 모두 지원. 검색 중엔 키가 달라 생략.
+  const categoryMailbox = (cat: Category): string =>
+    isSingleAccount
+      ? defaultSelection(cat, visibleFolders).join(',')
+      : cat === 'inbox'
+        ? allInboxMailbox || 'inbox'
+        : cat;
+  const visibleKey = visibleFolders.join(',');
   useEffect(() => {
-    if (isSingleAccount || query || !messagesQ.isSuccess) return;
-    const order: Category[] = ['inbox', 'sent', 'trash'];
-    const idx = order.indexOf(category);
-    const neighbors = [order[idx - 1], order[idx + 1]].filter(
-      (c): c is Category => !!c,
-    );
-    for (const next of neighbors) {
+    if (query || !messagesQ.isSuccess) return;
+    for (const cat of CATEGORIES.map((c) => c.id)) {
+      if (cat === category) continue;
+      const mb = categoryMailbox(cat);
+      if (isSingleAccount && !mb) continue; // 폴더 미로딩/대표 폴더 없음 → skip
       queryClient.prefetchQuery({
-        queryKey: ['messages', accountId ?? 'all', next, ''],
+        queryKey: ['messages', accountId ?? 'all', mb || 'inbox', '', 20],
         queryFn: () =>
-          mailApi.listMessages({ limit: 20, mailbox: next, accountId }),
+          mailApi.listMessages({ limit: 20, mailbox: mb || 'inbox', accountId }),
+        staleTime: 60_000,
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    isSingleAccount,
     query,
     messagesQ.isSuccess,
     category,
     accountId,
+    isSingleAccount,
+    allInboxMailbox,
+    visibleKey,
+    folders.length,
     queryClient,
   ]);
 

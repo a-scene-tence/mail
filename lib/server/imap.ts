@@ -73,6 +73,24 @@ function needsList(mailbox: Mailbox): boolean {
   return mailbox === 'sent' || mailbox === 'trash';
 }
 
+// 폴더 목록(client.list) 메모리 캐시 — 워밍된 서버리스 인스턴스 내.
+// sent/trash 경로 해석의 추가 왕복(~100–300ms)을 제거한다. 폴더 메타데이터만 저장(자격증명 아님).
+// 폴더 구성은 거의 안 바뀌므로 짧은 TTL.
+const folderListCache = new Map<string, { boxes: ImapBoxes; exp: number }>();
+const FOLDER_TTL_MS = 5 * 60_000;
+
+/** 폴더 목록을 캐시에서 가져오거나(워밍) client.list로 받아 캐시에 채운다. */
+async function listBoxes(client: ImapFlow, cacheKey: string): Promise<ImapBoxes> {
+  const c = folderListCache.get(cacheKey);
+  if (c && c.exp > Date.now()) return c.boxes;
+  const boxes = await client.list();
+  folderListCache.set(cacheKey, { boxes, exp: Date.now() + FOLDER_TTL_MS });
+  return boxes;
+}
+
+/** 계정별 캐시 키(자격증명 아님). */
+const boxesKey = (cfg: ImapCfg, address: string) => `${cfg.host}:${address}`;
+
 async function resolveMailbox(
   client: ImapFlow,
   mailbox: Mailbox,
@@ -105,7 +123,7 @@ export async function listImapFolders(
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
-    const boxes = await client.list();
+    const boxes = await listBoxes(client, boxesKey(cfg, address));
     const kindOf = (su?: string): MailFolder['kind'] => {
       if (su === '\\Sent') return 'sent';
       if (su === '\\Trash') return 'trash';
@@ -183,8 +201,9 @@ async function fetchImapFolder(
   accountId: string,
   limit: number,
   folder: Mailbox,
+  boxes?: ImapBoxes,
 ): Promise<MailMessage[]> {
-  const path = await resolveMailbox(client, folder);
+  const path = await resolveMailbox(client, folder, boxes);
   if (!path) return [];
   const lock = await client.getMailboxLock(path);
   try {
@@ -236,10 +255,14 @@ export async function listImapMany(
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
+    // sent/trash 별칭이 하나라도 있으면 폴더 목록을 1회(캐시) 받아 폴더별 해석에 공유.
+    const boxes = folderIds.some(needsList)
+      ? await listBoxes(client, boxesKey(cfg, address))
+      : undefined;
     const out: MailMessage[] = [];
     for (const fid of folderIds) {
       try {
-        out.push(...(await fetchImapFolder(client, accountId, limit, fid)));
+        out.push(...(await fetchImapFolder(client, accountId, limit, fid, boxes)));
       } catch {
         /* 한 폴더 실패가 전체를 깨뜨리지 않도록 무시 */
       }
@@ -367,8 +390,8 @@ export async function trashImap(
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
-    // 휴지통 탐색에 폴더 목록이 반드시 필요하므로 한 번만 받아 원본 해석에도 재사용.
-    const boxes = await client.list();
+    // 휴지통 탐색에 폴더 목록이 반드시 필요하므로 한 번만(캐시) 받아 원본 해석에도 재사용.
+    const boxes = await listBoxes(client, boxesKey(cfg, address));
     const trashPath = findTrashPath(boxes);
     const srcPath = await resolveMailbox(client, mailbox, boxes);
     if (!srcPath) throw new Error('원본 메일함을 찾을 수 없음');
@@ -404,9 +427,11 @@ export async function moveImap(
   const client = makeClient(address, password, cfg);
   await client.connect();
   try {
-    // from/to 중 별칭(sent/trash)이 있을 때만 폴더 목록을 1회 받아 둘 다에 재사용.
+    // from/to 중 별칭(sent/trash)이 있을 때만 폴더 목록을 1회(캐시) 받아 둘 다에 재사용.
     const boxes =
-      needsList(from) || needsList(to) ? await client.list() : undefined;
+      needsList(from) || needsList(to)
+        ? await listBoxes(client, boxesKey(cfg, address))
+        : undefined;
     const srcPath = await resolveMailbox(client, from, boxes);
     const destPath = await resolveMailbox(client, to, boxes);
     if (!srcPath) throw new Error('원본 메일함을 찾을 수 없음');
