@@ -4,7 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { listAccounts, mailApi } from '@/lib/api-client';
-import type { MailMessage, Mailbox } from '@/lib/providers/types';
+import type {
+  DraftAttachment,
+  MailMessage,
+  Mailbox,
+} from '@/lib/providers/types';
+import { MAX_ATTACHMENTS_TOTAL_BYTES } from '@/lib/providers/types';
 import { BrandMark } from '@/components/BrandMark';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
@@ -38,6 +43,28 @@ function prefix(tag: string, subject: string): string {
   const re = new RegExp(`^\\s*${tag}:`, 'i');
   return re.test(subject) ? subject : `${tag}: ${subject}`;
 }
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// File → 순수 base64(접두사 제거). read 화면 다운로드의 역방향.
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error('읽기 실패'));
+    reader.onload = () => {
+      const result = String(reader.result);
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+type Attached = DraftAttachment & { size: number };
 
 export default function ComposePage() {
   // 정적 export 호환: location을 직접 읽는다.
@@ -80,6 +107,9 @@ export default function ComposePage() {
   const [sending, setSending] = useState(false);
   const [readReceipt, setReadReceipt] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<Attached[]>([]);
+  const [attachErr, setAttachErr] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
   // 회신 스레드 연결 정보 (전달은 새 대화라 비움).
   const [thread, setThread] = useState<{
     inReplyTo?: string;
@@ -110,6 +140,42 @@ export default function ComposePage() {
 
   const accountId = from || ctx?.accountId || accounts[0]?.id || '';
 
+  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ''; // 같은 파일 재선택 허용
+    if (files.length === 0) return;
+    setAttachErr(null);
+    setReading(true);
+    try {
+      const current = attachments.reduce((s, a) => s + a.size, 0);
+      let total = current;
+      const added: Attached[] = [];
+      for (const file of files) {
+        if (total + file.size > MAX_ATTACHMENTS_TOTAL_BYTES) {
+          setAttachErr('첨부파일 총 용량은 3MB까지 가능합니다.');
+          break;
+        }
+        added.push({
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          data: await fileToBase64(file),
+          size: file.size,
+        });
+        total += file.size;
+      }
+      if (added.length) setAttachments((prev) => [...prev, ...added]);
+    } catch {
+      setAttachErr('첨부파일을 읽지 못했습니다.');
+    } finally {
+      setReading(false);
+    }
+  }
+
+  function removeAttachment(idx: number) {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+    setAttachErr(null);
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const toList = to
@@ -129,6 +195,13 @@ export default function ComposePage() {
         references: thread.references,
         threadId: thread.threadId,
         readReceipt,
+        attachments: attachments.length
+          ? attachments.map(({ filename, mimeType, data }) => ({
+              filename,
+              mimeType,
+              data,
+            }))
+          : undefined,
       });
       window.location.href = '/mail/';
     } catch {
@@ -137,7 +210,9 @@ export default function ComposePage() {
     }
   }
 
-  const canSubmit = !sending && accountId && to.trim() && subject && body;
+  const canSubmit =
+    !sending && !reading && accountId && to.trim() && subject && body;
+  const attachTotal = attachments.reduce((s, a) => s + a.size, 0);
   const heading =
     ctx?.mode === 'reply' ? '회신' : ctx?.mode === 'forward' ? '전달' : '메일 작성';
   const loadingSource = !!ctx?.srcId && sourceQ.isLoading;
@@ -224,6 +299,56 @@ export default function ComposePage() {
                 </span>
               </span>
             </label>
+          </div>
+
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <span className="eyebrow">
+                첨부파일
+                {attachments.length > 0 && (
+                  <span className="ml-2 text-gray">
+                    {attachments.length}개 · {formatBytes(attachTotal)}
+                  </span>
+                )}
+              </span>
+              <label className="eyebrow cursor-pointer hover:text-ink">
+                {reading ? '읽는 중…' : '파일 추가 +'}
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  disabled={reading}
+                  onChange={onPickFiles}
+                />
+              </label>
+            </div>
+            {attachments.length > 0 && (
+              <ul className="space-y-2">
+                {attachments.map((a, i) => (
+                  <li
+                    key={`${a.filename}-${i}`}
+                    className="flex items-center justify-between gap-3 border-b border-hairline pb-2"
+                  >
+                    <span className="min-w-0 truncate text-sm text-ink">
+                      {a.filename}
+                      <span className="ml-2 text-xs text-gray">
+                        {formatBytes(a.size)}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(i)}
+                      className="eyebrow shrink-0 hover:text-ink"
+                      aria-label={`${a.filename} 첨부 제거`}
+                    >
+                      제거
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-xs text-gray">최대 3MB까지 첨부할 수 있습니다.</p>
+            {attachErr && <p className="mt-2 text-sm text-ink">{attachErr}</p>}
           </div>
 
           {errMsg && (

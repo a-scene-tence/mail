@@ -83,7 +83,22 @@ export interface MailDraft {
   threadId?: string;
   /** 수신확인 요청 (MDN Disposition-Notification-To 헤더 발송) */
   readReceipt?: boolean;
+  /** 첨부파일 — 인라인 base64로 전송 */
+  attachments?: DraftAttachment[];
 }
+
+/** 작성 첨부파일 — 내용은 표준 base64(접두사 없음)로 인라인 전송. */
+export interface DraftAttachment {
+  filename: string;
+  mimeType: string;
+  data: string;
+}
+
+/**
+ * 첨부 총 원본 용량 상한(클라이언트·서버 공용).
+ * Vercel 서버리스 요청 본문 4.5MB 한도에서 base64(+~33%)·JSON 오버헤드를 뺀 안전 마진.
+ */
+export const MAX_ATTACHMENTS_TOTAL_BYTES = 3 * 1024 * 1024;
 
 /**
  * 조회할 메일함 식별자.

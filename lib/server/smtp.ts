@@ -38,6 +38,13 @@ export async function sendSmtp(
     inReplyTo: draft.inReplyTo,
     references: draft.references,
     headers,
+    // 첨부 — nodemailer가 multipart MIME·파일명 인코딩 처리.
+    attachments: draft.attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.data,
+      encoding: 'base64' as const,
+      contentType: a.mimeType || undefined,
+    })),
   });
   return { id: info.messageId };
 }

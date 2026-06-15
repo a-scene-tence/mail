@@ -4,6 +4,7 @@ import type {
   MailFolder,
   MailMessage,
 } from '../providers/types.js';
+import { randomToken } from './crypto.js';
 
 // Gmail REST(v1) 호출 — access token 기반. 서버 전용.
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -308,6 +309,11 @@ function encodeSubject(s: string): string {
   return `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
 }
 
+// base64를 MIME 권장대로 76자마다 CRLF로 접는다.
+function wrapB64(b64: string): string {
+  return (b64.match(/.{1,76}/g) ?? []).join('\r\n');
+}
+
 function buildMime(from: string, draft: MailDraft): string {
   const bodyB64 = Buffer.from(draft.body, 'utf8').toString('base64');
   const headers = [
@@ -324,14 +330,46 @@ function buildMime(from: string, draft: MailDraft): string {
     headers.push(`Disposition-Notification-To: ${from}`);
     headers.push(`Return-Receipt-To: ${from}`);
   }
-  return [
+  headers.push('MIME-Version: 1.0');
+
+  const atts = draft.attachments ?? [];
+  // 첨부 없으면 기존 단일 파트(text/plain) 유지 — 회귀 0.
+  if (atts.length === 0) {
+    return [
+      ...headers,
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      wrapB64(bodyB64),
+    ].join('\r\n');
+  }
+
+  // 첨부 있으면 multipart/mixed: 본문 1파트 + 첨부 N파트.
+  const boundary = `mixed_${randomToken(12)}`;
+  const lines: string[] = [
     ...headers,
-    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
     'Content-Type: text/plain; charset="UTF-8"',
     'Content-Transfer-Encoding: base64',
     '',
-    bodyB64,
-  ].join('\r\n');
+    wrapB64(bodyB64),
+  ];
+  for (const a of atts) {
+    const name = encodeSubject(a.filename); // RFC 2047 (한글 파일명)
+    const type = a.mimeType || 'application/octet-stream';
+    lines.push(
+      `--${boundary}`,
+      `Content-Type: ${type}; name="${name}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${name}"`,
+      '',
+      wrapB64(a.data),
+    );
+  }
+  lines.push(`--${boundary}--`, '');
+  return lines.join('\r\n');
 }
 
 /** Gmail REST로 메일 발송. */
