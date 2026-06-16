@@ -25,7 +25,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
           staleTime: 60_000,
           gcTime: 10 * 60_000,
           retry: 1,
-          refetchOnWindowFocus: false,
+          // 앱/탭 복귀·네트워크 재연결 시 백그라운드로 새 메일 갱신(staleTime 지나야 실제 조회).
+          refetchOnWindowFocus: true,
+          refetchOnReconnect: true,
         },
       },
     });

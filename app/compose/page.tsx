@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listAccounts, mailApi } from '@/lib/api-client';
 import type {
   DraftAttachment,
@@ -85,10 +86,13 @@ export default function ComposePage() {
     });
   }, []);
 
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const accountsQ = useQuery({
     queryKey: ['accounts'],
     queryFn: listAccounts,
     retry: false,
+    staleTime: 5 * 60_000,
   });
   const accounts = accountsQ.data ?? [];
 
@@ -203,7 +207,9 @@ export default function ComposePage() {
             }))
           : undefined,
       });
-      window.location.href = '/mail/';
+      // 보낸 결과가 보낸함 등에 반영되도록 무효화 후 SPA 네비게이션(앱 재부팅 없음).
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      router.push('/mail/');
     } catch {
       setErrMsg('발송에 실패했습니다. 다시 시도해 주세요.');
       setSending(false);

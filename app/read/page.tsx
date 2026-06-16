@@ -57,6 +57,7 @@ export default function ReadPage() {
     queryFn: () => listFolders(params!.accountId),
     enabled: !!params?.accountId && showMove,
     retry: false,
+    staleTime: 5 * 60_000,
   });
   const moveTargets = (foldersQ.data ?? []).filter(
     (f) => f.id !== params?.mailbox,

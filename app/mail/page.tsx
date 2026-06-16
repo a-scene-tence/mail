@@ -63,6 +63,8 @@ export default function MailPage() {
     queryKey: ['accounts'],
     queryFn: listAccounts,
     retry: false,
+    // 계정은 거의 안 바뀜 → 포커스마다 재조회하지 않도록 길게 신선 유지.
+    staleTime: 5 * 60_000,
   });
   const accounts = accountsQ.data ?? [];
 
@@ -91,6 +93,8 @@ export default function MailPage() {
     queryFn: () => listFolders(accountId as string),
     enabled: isSingleAccount,
     retry: false,
+    // 폴더 구성은 거의 안 바뀜 → 포커스마다 IMAP/Gmail 폴더 호출이 새로 열리지 않게 길게 신선.
+    staleTime: 5 * 60_000,
   });
   const folders = foldersQ.data ?? [];
 
@@ -225,11 +229,11 @@ export default function MailPage() {
     }
   }
 
-  // 좌우 스와이프로 받은/보낸 탭 전환.
-  const touchRef = useRef<{ x: number; y: number } | null>(null);
+  // 좌우 스와이프로 대분류 전환 / 맨 위에서 아래로 당겨 새로고침.
+  const touchRef = useRef<{ x: number; y: number; top: number } | null>(null);
   function onTouchStart(e: React.TouchEvent) {
     const t = e.touches[0];
-    touchRef.current = { x: t.clientX, y: t.clientY };
+    touchRef.current = { x: t.clientX, y: t.clientY, top: window.scrollY };
   }
   function onTouchEnd(e: React.TouchEvent) {
     const s = touchRef.current;
@@ -238,6 +242,11 @@ export default function MailPage() {
     const t = e.changedTouches[0];
     const dx = t.clientX - s.x;
     const dy = t.clientY - s.y;
+    // 당겨서 새로고침: 화면 최상단에서 세로 우세로 충분히 아래로 끌면 목록 재조회.
+    if (s.top <= 4 && dy > 90 && Math.abs(dy) > Math.abs(dx)) {
+      messagesQ.refetch();
+      return;
+    }
     // 가로 이동이 충분하고 세로보다 우세할 때만 대분류 전환.
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy)) return;
     const order: Category[] = ['inbox', 'sent', 'trash'];
@@ -503,9 +512,19 @@ export default function MailPage() {
           </Label>
           <h1 className="display mt-3">{folderTitle}</h1>
         </div>
-        <Link href="/compose/" className="eyebrow">
-          작성 →
-        </Link>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => messagesQ.refetch()}
+            disabled={messagesQ.isFetching}
+            className="eyebrow hover:text-ink disabled:opacity-40"
+          >
+            {messagesQ.isFetching ? '불러오는 중…' : '새로고침'}
+          </button>
+          <Link href="/compose/" className="eyebrow">
+            작성 →
+          </Link>
+        </div>
       </header>
 
       <nav className="mb-6 flex gap-6 border-b border-hairline">
