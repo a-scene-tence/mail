@@ -204,6 +204,23 @@ async function gmailMetaBatch(
   return results.flat();
 }
 
+// 메시지 메타 워밍 캐시(워밍된 서버리스 인스턴스 내). key=`${accountId}:${id}` → 불변 메타.
+// 토큰/폴더 캐시와 동일 패턴. 자격증명·본문은 저장하지 않음. unread는 TTL 내 지연될 수 있음.
+const metaCache = new Map<string, { msg: MailMessage; exp: number }>();
+const META_TTL_MS = 3 * 60_000;
+const META_MAX_ENTRIES = 5000;
+
+/** 조회한 메타를 캐시에 저장(메모리 무한증가 방지용 가벼운 상한). */
+function cacheMetas(accountId: string, msgs: MailMessage[], now: number): void {
+  if (metaCache.size > META_MAX_ENTRIES) {
+    for (const [k, v] of metaCache) if (v.exp <= now) metaCache.delete(k);
+    if (metaCache.size > META_MAX_ENTRIES) metaCache.clear();
+  }
+  for (const m of msgs) {
+    metaCache.set(`${accountId}:${m.id}`, { msg: m, exp: now + META_TTL_MS });
+  }
+}
+
 /** 메일함 목록 (메타데이터). label은 임의 라벨 ID(기본 INBOX). */
 export async function listGmail(
   accountId: string,
@@ -221,25 +238,44 @@ export async function listGmail(
   const ids = (list.messages ?? []).map((x) => x.id);
   if (ids.length === 0) return [];
 
-  // 1) 배치 1요청으로 메타 수집(N+1 라운드트립 제거).
-  try {
-    const metas = await gmailMetaBatch(accessToken, ids);
-    if (metas.length > 0) {
-      return metas.map((m) => toMailMessage(accountId, m, false));
-    }
-  } catch {
-    /* 배치 실패 → 아래 폴백 */
+  // 증분: 캐시에 있는 id는 재사용, 새/만료 id만 배치 조회(불변 메타 재다운로드 제거).
+  const now = Date.now();
+  const hits: MailMessage[] = [];
+  const missing: string[] = [];
+  for (const id of ids) {
+    const c = metaCache.get(`${accountId}:${id}`);
+    if (c && c.exp > now) hits.push(c.msg);
+    else missing.push(id);
   }
 
-  // 2) 폴백: id별 메타 조회(Promise.all). 단일 실패는 무시.
-  const messages = await Promise.all(
-    ids.map((id) =>
-      gget<GmailMessage>(accessToken, `/messages/${id}?${META_QUERY}`)
-        .then((m) => toMailMessage(accountId, m, false))
-        .catch(() => null),
-    ),
-  );
-  return messages.filter((m): m is MailMessage => m !== null);
+  let fetched: MailMessage[] = [];
+  if (missing.length > 0) {
+    try {
+      // 1) 배치 1요청으로 메타 수집(N+1 라운드트립 제거).
+      const metas = await gmailMetaBatch(accessToken, missing);
+      if (metas.length === 0) throw new Error('빈 배치 → 폴백');
+      fetched = metas.map((m) => toMailMessage(accountId, m, false));
+    } catch {
+      // 2) 폴백: id별 메타 조회(Promise.all). 단일 실패는 무시.
+      const r = await Promise.all(
+        missing.map((id) =>
+          gget<GmailMessage>(accessToken, `/messages/${id}?${META_QUERY}`)
+            .then((m) => toMailMessage(accountId, m, false))
+            .catch(() => null),
+        ),
+      );
+      fetched = r.filter((m): m is MailMessage => m !== null);
+    }
+    cacheMetas(accountId, fetched, now);
+  }
+
+  // id 목록(최신순) 순서대로 hits ∪ fetched 매핑(누락 id 제외).
+  const byId = new Map<string, MailMessage>();
+  for (const m of hits) byId.set(m.id, m);
+  for (const m of fetched) byId.set(m.id, m);
+  return ids
+    .map((id) => byId.get(id))
+    .filter((m): m is MailMessage => m !== undefined);
 }
 
 // Gmail 시스템 라벨의 한글 표시명.
