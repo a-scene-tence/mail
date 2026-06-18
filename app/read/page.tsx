@@ -21,6 +21,37 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// HTML 본문 앞에 base/referrer를 주입해 모든 링크가 새 탭에서 열리게 한다.
+// (첫 <base target>이 우선이라 본문 자체 base가 있어도 우리 것이 이긴다.)
+function wrapBodyHtml(html: string): string {
+  return (
+    '<base target="_blank">' +
+    '<meta name="referrer" content="no-referrer">' +
+    html
+  );
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// 평문 본문: HTML 이스케이프 후 URL을 새 탭 링크로 변환(신뢰 불가 텍스트 → 이스케이프 우선).
+function linkifyText(text: string): string {
+  const escaped = escapeHtml(text);
+  return escaped.replace(
+    /(https?:\/\/[^\s<]+|www\.[^\s<]+)/g,
+    (m) => {
+      const href = m.startsWith('http') ? m : `http://${m}`;
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="text-ink underline">${m}</a>`;
+    },
+  );
+}
+
 export default function ReadPage() {
   // 정적 export 호환: useSearchParams(Suspense 필요) 대신 location을 직접 읽는다.
   const [params, setParams] = useState<{
@@ -244,17 +275,21 @@ export default function ReadPage() {
 
           <div className="mt-8 border-t border-hairline pt-8">
             {data.bodyHtml ? (
-              // 안전을 위해 샌드박스 iframe으로 본문 HTML 렌더.
+              // 샌드박스 iframe으로 본문 HTML 렌더. 스크립트·동일출처는 계속 차단하고,
+              // 링크만 새 탭으로 열리도록 allow-popups + <base target="_blank"> 사용.
               <iframe
                 title="message-body"
-                sandbox=""
+                sandbox="allow-popups allow-popups-to-escape-sandbox"
                 className="h-[60vh] w-full border-0"
-                srcDoc={data.bodyHtml}
+                srcDoc={wrapBodyHtml(data.bodyHtml)}
               />
             ) : (
-              <pre className="whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-ink">
-                {data.bodyText || data.snippet}
-              </pre>
+              <pre
+                className="whitespace-pre-wrap break-words font-sans text-base leading-relaxed text-ink"
+                dangerouslySetInnerHTML={{
+                  __html: linkifyText(data.bodyText || data.snippet || ''),
+                }}
+              />
             )}
           </div>
         </article>
