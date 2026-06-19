@@ -1,7 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { readSessionId } from '../../lib/server/session.js';
 import { resolveAccounts } from '../../lib/server/accounts.js';
-import { moveMessage, deleteMessage } from '../../lib/server/mailbox.js';
+import {
+  moveMessage,
+  deleteMessage,
+  markRead,
+} from '../../lib/server/mailbox.js';
 
 // POST /api/messages/move  body: { accountId, id, from, to }
 // 메시지를 from 폴더에서 to 폴더로 이동.
@@ -17,13 +21,15 @@ export default async function handler(
     return;
   }
   const sessionId = readSessionId(req.headers.cookie);
-  const { accountId, id, from, to } = (req.body ?? {}) as {
+  const { accountId, id, from, to, action } = (req.body ?? {}) as {
     accountId?: string;
     id?: string;
     from?: string;
     to?: string;
+    action?: string;
   };
-  if (!sessionId || !accountId || !id || !to) {
+  // 읽음 처리(action='read')는 to가 필요 없다. 그 외(이동/삭제)는 to 필수.
+  if (!sessionId || !accountId || !id || (!to && action !== 'read')) {
     res.status(400).json({ error: '입력 누락 또는 미인증' });
     return;
   }
@@ -34,10 +40,12 @@ export default async function handler(
       res.status(404).json({ error: '계정을 찾을 수 없음' });
       return;
     }
-    if (to === 'trash') {
+    if (action === 'read') {
+      await markRead(resolved, id, from || 'inbox');
+    } else if (to === 'trash') {
       await deleteMessage(resolved, id, from || 'inbox');
     } else {
-      await moveMessage(resolved, id, from || 'inbox', to);
+      await moveMessage(resolved, id, from || 'inbox', to as string);
     }
     res.status(200).json({ ok: true });
   } catch (err) {

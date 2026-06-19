@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -81,6 +81,26 @@ export default function ReadPage() {
     enabled: !!params?.accountId && !!params?.id,
     retry: false,
   });
+
+  // 메일을 실제로 열면(프리페치 아님) 읽음 처리: 목록·읽기 캐시 즉시 갱신 + 서버 반영(백그라운드).
+  const markedRef = useRef(false);
+  useEffect(() => {
+    if (!params || !data || !data.unread || markedRef.current) return;
+    markedRef.current = true;
+    const key = `${params.accountId}:${params.id}`;
+    queryClient.setQueriesData<MailMessage[]>({ queryKey: ['messages'] }, (old) =>
+      old
+        ? old.map((m) =>
+            `${m.accountId}:${m.id}` === key ? { ...m, unread: false } : m,
+          )
+        : old,
+    );
+    queryClient.setQueryData<MailMessage>(
+      ['message', params.accountId, params.id, params.mailbox],
+      (old) => (old ? { ...old, unread: false } : old),
+    );
+    mailApi.markRead(params.accountId, params.id, params.mailbox).catch(() => {});
+  }, [params, data, queryClient]);
 
   // 이동 대상 폴더 목록 — 현재 메일이 든 폴더는 제외.
   const foldersQ = useQuery({

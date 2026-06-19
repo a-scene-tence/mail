@@ -13,6 +13,7 @@ import {
   sendGmail,
   trashGmail,
   moveGmail,
+  markReadGmail,
   getGmailAttachment,
   listGmailLabels,
 } from './gmail.js';
@@ -21,6 +22,7 @@ import {
   getImap,
   trashImap,
   moveImap,
+  markReadImap,
   getImapAttachment,
   listImapFolders,
 } from './imap.js';
@@ -203,6 +205,23 @@ export async function deleteMessage(
   }
   if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
   await trashImap(r.account.address, r.secret, p.imap, id, mailbox);
+  return { ok: true };
+}
+
+/** 메일을 읽음 처리 (Gmail UNREAD 라벨 제거 / IMAP \Seen). */
+export async function markRead(
+  r: ResolvedAccount,
+  id: string,
+  mailbox: Mailbox = 'inbox',
+): Promise<{ ok: true }> {
+  const p = providerOf(r);
+  if (p.auth === 'oauth') {
+    const token = await accessTokenFromRefresh(r.secret);
+    await markReadGmail(token, r.account.id, id);
+    return { ok: true };
+  }
+  if (!p.imap) throw new Error(`${p.id}: imap 설정 없음`);
+  await markReadImap(r.account.address, r.secret, p.imap, id, mailbox);
   return { ok: true };
 }
 

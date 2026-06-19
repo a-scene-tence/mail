@@ -147,4 +147,9 @@ export interface MailGateway {
     to: Mailbox,
     from?: Mailbox,
   ): Promise<{ ok: true }>;
+  markRead(
+    accountId: string,
+    messageId: string,
+    mailbox?: Mailbox,
+  ): Promise<{ ok: true }>;
 }

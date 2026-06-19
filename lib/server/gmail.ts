@@ -444,6 +444,26 @@ export async function getGmailAttachment(
   return Buffer.from(data.data ?? '', 'base64url');
 }
 
+/** 메일을 읽음 처리 (UNREAD 라벨 제거, gmail.modify 스코프 필요). */
+export async function markReadGmail(
+  accessToken: string,
+  accountId: string,
+  messageId: string,
+): Promise<void> {
+  const res = await fetch(`${API}/messages/${messageId}/modify`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ removeLabelIds: ['UNREAD'] }),
+  });
+  if (!res.ok) throw new Error(`Gmail markRead 실패: ${res.status}`);
+  // 증분 캐시(M19)도 보정해 다음 목록 조회가 읽음을 반영.
+  const c = metaCache.get(`${accountId}:${messageId}`);
+  if (c) c.msg = { ...c.msg, unread: false };
+}
+
 /** 메일을 휴지통으로 이동 (gmail.modify 스코프 필요). */
 export async function trashGmail(
   accessToken: string,

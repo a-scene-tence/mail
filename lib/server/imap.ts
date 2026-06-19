@@ -448,6 +448,32 @@ export async function moveImap(
   }
 }
 
+/** 메일을 읽음 처리 (\Seen 플래그 추가). id = UID 문자열. */
+export async function markReadImap(
+  address: string,
+  password: string,
+  cfg: ImapCfg,
+  id: string,
+  mailbox: Mailbox = 'inbox',
+): Promise<void> {
+  const client = makeClient(address, password, cfg);
+  await client.connect();
+  try {
+    const path = await resolveMailbox(client, mailbox);
+    if (!path) throw new Error('메일함을 찾을 수 없음');
+    const lock = await client.getMailboxLock(path);
+    try {
+      await client.messageFlagsAdd(String(Number(id)), ['\\Seen'], {
+        uid: true,
+      });
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
+}
+
 /** 자격증명 검증 — IMAP 연결 시도 후 즉시 로그아웃. 실패 시 throw. */
 export async function verifyImap(
   address: string,

@@ -176,4 +176,12 @@ export const mailApi: MailGateway = {
       body: JSON.stringify({ accountId, id: messageId, to, from }),
     });
   },
+
+  async markRead(accountId: string, messageId: string, mailbox?: Mailbox) {
+    // 읽음 처리도 move 엔드포인트로 통합(action='read').
+    return request<{ ok: true }>(`/api/messages/move`, {
+      method: 'POST',
+      body: JSON.stringify({ accountId, id: messageId, from: mailbox, action: 'read' }),
+    });
+  },
 };
